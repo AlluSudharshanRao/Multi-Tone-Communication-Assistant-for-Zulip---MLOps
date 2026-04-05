@@ -1,0 +1,165 @@
+version: "3.9"
+
+# ============================================================
+# Multi-Tone Communication Assistant - Serving Stack
+# ============================================================
+# Services:
+#   classifier-pytorch   → baseline CPU inference (port 8001)
+#   classifier-onnx      → ONNX Runtime CPU (port 8002) — model-level optimization
+#   classifier-quantized → INT8 dynamic quantization (port 8003) — model-level optimization
+#   generator            → GPU LLM (port 8010) — system-level: GPU infra
+#   prometheus           → metrics scraping
+#
+# Usage:
+#   docker compose up classifier-pytorch  (baseline only)
+#   docker compose up classifier-onnx     (ONNX option)
+#   docker compose --profile gpu up       (full stack with generator)
+# ============================================================
+
+services:
+
+  # ── Classifier: PyTorch baseline (CPU) ─────────────────────────────────────
+  classifier-pytorch:
+    build:
+      context: ./classifier
+    image: tone-classifier:latest
+    container_name: classifier-pytorch
+    environment:
+      DUMMY_MODE: "true"           # set to false + MODEL_PATH once real model is ready
+      SERVING_BACKEND: pytorch
+      MODEL_PATH: distilbert-base-uncased
+    ports:
+      - "8001:8001"
+    mem_limit: 512m
+    cpus: "2.0"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Classifier: ONNX Runtime (CPU, model-level optimization) ───────────────
+  classifier-onnx:
+    build:
+      context: ./classifier
+    image: tone-classifier:latest
+    container_name: classifier-onnx
+    environment:
+      DUMMY_MODE: "true"
+      SERVING_BACKEND: onnx
+      MODEL_PATH: distilbert-base-uncased
+      ONNX_PATH: /app/model_cache/classifier.onnx
+      ORT_THREADS: "2"
+    ports:
+      - "8002:8001"
+    volumes:
+      - model_cache:/app/model_cache
+    mem_limit: 512m
+    cpus: "2.0"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Classifier: INT8 quantized (CPU, model-level optimization) ─────────────
+  classifier-quantized:
+    build:
+      context: ./classifier
+    image: tone-classifier:latest
+    container_name: classifier-quantized
+    environment:
+      DUMMY_MODE: "true"
+      SERVING_BACKEND: quantized
+      MODEL_PATH: distilbert-base-uncased
+    ports:
+      - "8003:8001"
+    mem_limit: 256m
+    cpus: "2.0"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Generator: dummy mode (no GPU needed for benchmarks) ────────────────────
+  generator:
+    build:
+      context: ./generator
+    image: tone-generator:latest
+    container_name: generator
+    environment:
+      DUMMY_MODE: "true"           # set to false + MODEL_NAME on GPU instance
+      MODEL_NAME: google/flan-t5-base
+      CLASSIFIER_URL: http://classifier-pytorch:8001
+      LATENCY_BUDGET_MS: "600"
+    ports:
+      - "8010:8010"
+    mem_limit: 512m
+    restart: unless-stopped
+    depends_on:
+      classifier-pytorch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Generator: real LLM on GPU (run separately on GPU instance) ─────────────
+  generator-gpu:
+    build:
+      context: ./generator
+    image: tone-generator:latest
+    container_name: generator-gpu
+    environment:
+      DUMMY_MODE: "false"
+      MODEL_NAME: google/flan-t5-base
+      CLASSIFIER_URL: http://classifier-pytorch:8001
+      LATENCY_BUDGET_MS: "600"
+    ports:
+      - "8010:8010"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    mem_limit: 8g
+    restart: unless-stopped
+    profiles:
+      - gpu
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ── Prometheus scraper ──────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+volumes:
+  model_cache:
+  prometheus_data:

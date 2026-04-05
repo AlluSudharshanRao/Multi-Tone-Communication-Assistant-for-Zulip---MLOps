@@ -1,0 +1,16 @@
+{
+  "message_id": "msg_0042",
+  "text": "yo can u just fix the bug already its been 3 days lol",
+  "message_type": "stream",
+  "stream": "engineering",
+  "topic": "backend-fixes",
+  "classifier_result": {
+    "predicted_tone": "neutral",
+    "probabilities": {
+      "formal": 0.07,
+      "friendly": 0.21,
+      "neutral": 0.72
+    },
+    "confidence": 0.72
+  }
+}
