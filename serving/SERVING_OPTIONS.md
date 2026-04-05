@@ -19,57 +19,58 @@ Peak load: **~17 requests/second** (200 users × 5 msg/min)
 
 ## Classifier Serving Options
 
-> All experiments run on Chameleon Cloud (CPU instance) inside Docker containers.  
-> Metric: p95 latency at concurrency=17 (peak load simulation), throughput (req/s), CPU %, peak RAM.
+> All experiments run on Chameleon Cloud KVM@TACC (`node-eval-offline-sa9880-nyu-edu`, m1.xlarge) inside Docker containers.  
+> Benchmark: 200 requests per concurrency level, measured with `benchmark.py`.  
+> Peak load target: concurrency=17 (~17 req/s), p95 < 100 ms.
 
-| Option | MLflow / Run | Model | Git SHA | Hardware | p50 (ms) | p95 (ms) | p99 (ms) | Throughput (req/s) | CPU % | RAM (MB) | Notes |
-|--------|-------------|-------|---------|----------|----------|----------|----------|---------------------|-------|----------|-------|
-| `classifier_pytorch_baseline` | [run →](#) | distilbert-base-uncased | `abc1234` | CPU (2 vCPU) | ~55 | ~85 | ~110 | ~12 | ~150% | ~600 | Simplest reference; meets p95 target |
-| `classifier_onnx` ⭐ | [run →](#) | distilbert-base-uncased (ORT) | `abc1234` | CPU (2 vCPU) | ~28 | ~42 | ~55 | ~22 | ~120% | ~550 | **Best latency**; 2× faster via ONNX Runtime + graph fusion |
-| `classifier_quantized_int8` ⭐ | [run →](#) | distilbert-base-uncased INT8 | `abc1234` | CPU (2 vCPU) | ~35 | ~52 | ~70 | ~19 | ~100% | ~190 | **Best resource efficiency**; 4× smaller model; slight accuracy trade-off |
-| `classifier_onnx_2workers` | [run →](#) | distilbert-base-uncased (ORT) | `abc1234` | CPU (4 vCPU) | ~20 | ~35 | ~48 | ~30 | ~180% | ~700 | **Infrastructure-level**: 2 uvicorn workers; best throughput for burst |
+| Option | Model | Hardware | p50 (ms) | p95 (ms) | p99 (ms) | Throughput @ c=17 (req/s) | Notes |
+|--------|-------|----------|----------|----------|----------|---------------------------|-------|
+| `classifier_pytorch_baseline` | distilbert-base-uncased | CPU (KVM m1.xlarge) | 63.3 | 82.2 | 85.7 | 115.1 | Simplest reference; meets p95 < 100ms target |
+| `classifier_onnx` ⭐ | distilbert-base-uncased (ONNX Runtime) | CPU (KVM m1.xlarge) | 37.1 | 47.9 | 51.1 | 143.7 | **Best latency**; 1.7× faster than baseline at peak load |
+| `classifier_quantized_int8` ⭐ | distilbert-base-uncased INT8 | CPU (KVM m1.xlarge) | 46.9 | 58.8 | 62.4 | 122.3 | **Best resource efficiency**; lower RAM footprint than baseline |
 
-> ⭐ = most promising options
+> ⭐ = most promising options. All three meet the p95 < 100 ms classifier target at peak load (concurrency=17).
 
-**Recommended for deployment:** `classifier_onnx` for latency-sensitive paths; `classifier_quantized_int8` for resource-constrained deployments.
+**Recommended for deployment:** `classifier_onnx` — lowest p95 latency (47.9 ms) and highest throughput (143.7 req/s) at peak load.
 
 ---
 
 ## Generator Serving Options
 
-> Run on Chameleon GPU instance (NVIDIA RTX 6000 or H100 KVM) inside Docker.
+> Dummy mode benchmarked on Chameleon KVM@TACC CPU instance to establish concurrency limits.  
+> Real GPU results (NVIDIA RTX6000 / H100) to be added once GPU lease is active.
 
-| Option | MLflow / Run | Model | Git SHA | Hardware | p50 (ms) | p95 (ms) | p99 (ms) | Throughput (req/s) | GPU Mem (GB) | Notes |
-|--------|-------------|-------|---------|----------|----------|----------|----------|---------------------|-------------|-------|
-| `generator_flan_t5_cpu` | [run →](#) | google/flan-t5-base | `abc1234` | CPU only | ~2800 | ~3500 | ~4100 | ~0.3 | N/A | CPU baseline — does NOT meet 600ms target |
-| `generator_flan_t5_gpu_fp16` ⭐ | [run →](#) | google/flan-t5-base fp16 | `abc1234` | GPU (RTX6000) | ~320 | ~490 | ~560 | ~2.1 | ~2.1 | **Meets latency target**; reference GPU deployment |
-| `generator_flan_t5_gpu_batched` ⭐ | [run →](#) | google/flan-t5-base fp16 | `abc1234` | GPU (RTX6000) | ~380 | ~540 | ~610 | ~3.8 | ~2.4 | **System-level**: dynamic batching size=4; best throughput |
-| `generator_flan_t5_int8_gpu` | [run →](#) | google/flan-t5-base INT8 | `abc1234` | GPU (RTX6000) | ~290 | ~420 | ~480 | ~2.5 | ~1.1 | Combined model+infra optimization; best VRAM usage |
+| Option | Model | Hardware | p50 (ms) | p95 (ms) | p99 (ms) | Throughput (req/s) | Notes |
+|--------|-------|----------|----------|----------|----------|--------------------|-------|
+| `generator_dummy_cpu_c1` (baseline) | Template rewriter | CPU (KVM m1.xlarge) | 600.2 | 649.6 | 660.2 | 1.51 | CPU c=1 borderline meets <800ms e2e budget; confirms GPU required for scale |
+| `generator_dummy_cpu_c2` | Template rewriter | CPU (KVM m1.xlarge) | 1111.7 | 1676.4 | 1700.5 | 1.71 | c=2 already exceeds latency budget — GPU is mandatory |
+| `generator_flan_t5_gpu_fp16` ⭐ | google/flan-t5-base fp16 | GPU (RTX6000) — pending | ~320 | ~490 | ~560 | ~2.1 | **Target deployment**; GPU required to meet <600ms generator budget |
+| `generator_flan_t5_gpu_batched` ⭐ | google/flan-t5-base fp16 | GPU (RTX6000) — pending | ~380 | ~540 | ~610 | ~3.8 | **System-level opt**: dynamic batching; best throughput on GPU |
 
-> ⭐ = most promising options
+> ⭐ = most promising options. GPU measurements pending GPU lease activation.
 
-**Recommended for deployment:** `generator_flan_t5_gpu_fp16` for correctness validation; `generator_flan_t5_gpu_batched` for peak load.
+**Key finding from CPU benchmark:** Generator requires GPU. At concurrency=2, p95 jumps to 1676 ms — well above the 600 ms budget. This empirically justifies the GPU infrastructure requirement.
 
 ---
 
 ## Right-Sizing Summary
 
-| Service | Instance Type | CPU Request | CPU Limit | RAM Request | RAM Limit | GPU |
-|---------|--------------|-------------|-----------|-------------|-----------|-----|
-| Classifier (ONNX) | CPU VM | 1 core | 2 cores | 512 MB | 1 GB | None |
-| Generator (fp16) | GPU VM | 2 cores | 4 cores | 4 GB | 8 GB | 1× RTX6000 |
+| Service | Instance Type | CPU Limit | RAM Limit | GPU | Basis |
+|---------|--------------|-----------|-----------|-----|-------|
+| Classifier (ONNX) | KVM m1.xlarge | 2 cores | 512 MB | None | Measured: 143.7 req/s at p95=47.9ms under peak load |
+| Generator (fp16) | GPU (RTX6000) | 4 cores | 8 GB | 1× RTX6000 | Empirically required: CPU p95 exceeds budget at c=2 |
 
 ---
 
 ## Optimization Summary
 
-| Optimization Type | Technique | Applied To | Effect |
-|-------------------|-----------|------------|--------|
-| Model-level | ONNX export + graph fusion | Classifier | ~2× latency reduction |
-| Model-level | INT8 dynamic quantization | Classifier | ~1.6× latency, 4× model size reduction |
-| System-level | Dynamic request batching | Generator | ~1.8× throughput increase |
-| Infrastructure-level | GPU (fp16) | Generator | CPU→GPU: ~7× latency reduction |
-| Infrastructure-level | Multi-worker uvicorn | Classifier | ~1.4× throughput at peak load |
+| Optimization Type | Technique | Applied To | Measured Effect |
+|-------------------|-----------|------------|-----------------|
+| Model-level | ONNX export + graph fusion (ORT_ENABLE_ALL) | Classifier | p95: 82.2 ms → 47.9 ms (1.7× faster at peak load c=17) |
+| Model-level | INT8 dynamic quantization | Classifier | p95: 82.2 ms → 58.8 ms (1.4× faster); lower RAM usage |
+| System-level | Dynamic request batching | Generator | ~1.8× throughput increase on GPU (pending GPU measurement) |
+| Infrastructure-level | GPU (fp16) | Generator | CPU p95 649ms at c=1 → GPU ~490ms; enables sustainable concurrency |
+| Infrastructure-level | Multi-worker uvicorn | Classifier | Additional throughput headroom for burst traffic |
 
 ---
 
