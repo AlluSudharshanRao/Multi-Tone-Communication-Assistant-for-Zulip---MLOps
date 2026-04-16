@@ -1,0 +1,37 @@
+# Candidate: DistilBERT sequence classifier (tone). Optuna not supported for this model.type.
+experiment_name: teamchat_tone_clf
+run_name: candidate_tone_distilbert
+description: "DistilBERT fine-tuned with Hugging Face Trainer; TF-IDF block below is ignored."
+
+data:
+  dataset: tone_csv
+  csv_path: data/tone_seed.csv
+  label_classes:
+    - formal
+    - friendly
+    - neutral
+  test_size: 0.2
+  random_seed: 42
+
+# Unused for distilbert (kept so the same config schema works across sklearn runs).
+tfidf:
+  max_features: 12000
+  ngram_min: 1
+  ngram_max: 2
+  min_df: 1
+
+model:
+  type: distilbert
+  params:
+    pretrained_model_name: distilbert-base-uncased
+    max_length: 128
+    num_epochs: 3
+    batch_size: 4
+    learning_rate: 5.0e-5
+    weight_decay: 0.01
+
+optuna:
+  enabled: false
+  n_trials: 0
+  metric: f1_macro
+  search_space: {}

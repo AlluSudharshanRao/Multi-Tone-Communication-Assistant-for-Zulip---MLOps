@@ -1,0 +1,37 @@
+# Candidate: Logistic regression + TF-IDF + Optuna (tone)
+experiment_name: teamchat_tone_clf
+run_name: candidate_tone_logistic
+description: "LogisticRegression(saga) + TF-IDF; tunable regularization and n-grams."
+
+data:
+  dataset: tone_csv
+  csv_path: data/tone_seed.csv
+  label_classes:
+    - formal
+    - friendly
+    - neutral
+  test_size: 0.2
+  random_seed: 42
+
+tfidf:
+  max_features: 12000
+  ngram_min: 1
+  ngram_max: 2
+  min_df: 1
+
+model:
+  type: logistic_regression
+  params:
+    C: 1.0
+    max_iter: 3000
+    solver: saga
+    penalty: l2
+
+optuna:
+  enabled: true
+  n_trials: 18
+  metric: f1_macro
+  search_space:
+    C: { low: 0.05, high: 5.0, log: true }
+    tfidf_max_features: { choices: [6000, 12000, 20000] }
+    ngram_max: { choices: [1, 2] }
