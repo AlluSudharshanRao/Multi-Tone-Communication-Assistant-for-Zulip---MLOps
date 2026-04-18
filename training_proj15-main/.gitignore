@@ -1,0 +1,7 @@
+training/.venv/
+training/.venv2/
+training/mlruns/
+training/outputs/
+**/__pycache__/
+*.pyc
+.pytest_cache/

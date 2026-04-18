@@ -1,0 +1,38 @@
+# Candidate: Random forest on TF-IDF (tone) — quality vs fit-time tradeoff
+experiment_name: teamchat_tone_clf
+run_name: candidate_tone_random_forest
+description: "RandomForest + TF-IDF; explores higher capacity vs training cost."
+
+data:
+  dataset: tone_csv
+  csv_path: data/tone_seed.csv
+  label_classes:
+    - formal
+    - friendly
+    - neutral
+  test_size: 0.2
+  random_seed: 42
+
+tfidf:
+  max_features: 8000
+  ngram_min: 1
+  ngram_max: 1
+  min_df: 1
+
+model:
+  type: random_forest
+  params:
+    n_estimators: 100
+    max_depth: null
+    min_samples_leaf: 1
+    n_jobs: -1
+    random_state: 42
+
+optuna:
+  enabled: true
+  n_trials: 12
+  metric: f1_macro
+  search_space:
+    n_estimators: { low: 40, high: 200 }
+    max_depth: { choices: [null, 12, 24, 36] }
+    min_samples_leaf: { low: 1, high: 4 }

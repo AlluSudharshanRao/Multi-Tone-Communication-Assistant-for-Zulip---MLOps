@@ -1,0 +1,46 @@
+# Very small instruct LM + LoRA on CPU (separate from sklearn tone classifier).
+experiment_name: teamchat_tone_generator_llm
+run_name: smollm2_135m_lora_cpu
+description: "LoRA on SmolLM2-135M for formal/friendly/neutral rewrites; CPU-friendly."
+
+model:
+  # ~135M params, runs on CPU with small batch (slow but viable for demos / Chameleon CPU nodes)
+  name: HuggingFaceTB/SmolLM2-135M-Instruct
+  torch_dtype: float32
+  trust_remote_code: false
+
+lora:
+  r: 8
+  alpha: 16
+  dropout: 0.05
+  # SmolLM2 is Llama-like; adjust if you swap base model
+  target_modules:
+    - q_proj
+    - v_proj
+
+data:
+  train_path: data/generator_train.jsonl
+  val_fraction: 0.15
+  max_samples: null
+  random_seed: 42
+
+prompt:
+  system: "You rewrite short workplace chat messages. Follow the requested tone exactly. Output only the rewritten message, no quotes or preamble."
+  user_template: "Tone: {tone}\nMessage: {original}"
+  # Tones expanded from each JSONL row
+  tones:
+    - formal
+    - friendly
+    - neutral
+
+training:
+  output_dir: outputs/llm_lora
+  num_train_epochs: 3
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 0.0002
+  warmup_ratio: 0.06
+  max_length: 512
+  logging_steps: 1
+  save_steps: 50
+  save_total_limit: 2
