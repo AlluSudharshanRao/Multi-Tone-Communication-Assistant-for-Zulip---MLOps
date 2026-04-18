@@ -22,12 +22,23 @@
         path: "{{ repo_root }}"
         state: directory
         mode: "0755"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
 
     - name: Copy manifests to VM (expects repo present locally)
       ansible.builtin.copy:
         src: "../../../k8s/"
         dest: "{{ repo_root }}/k8s/"
         mode: "0644"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Sealed-secrets demo script executable for ansible_user
+      ansible.builtin.file:
+        path: "{{ repo_root }}/k8s/addons/sealed-secrets/demo/generate-sealed-demo.sh"
+        mode: "0755"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
 
     - name: Apply namespaces
       ansible.builtin.command: >

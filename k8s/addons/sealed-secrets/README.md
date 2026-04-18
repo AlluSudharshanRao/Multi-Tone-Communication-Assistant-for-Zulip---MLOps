@@ -41,24 +41,26 @@ ansible-playbook -i inventory.ini playbooks/install_sealed_secrets_controller.ym
 From repo root, with `kubectl` pointed at the cluster:
 
 ```bash
-chmod +x k8s/addons/sealed-secrets/demo/generate-sealed-demo.sh
-# optional: DEMO_API_KEY='your-non-production-value' ./k8s/addons/sealed-secrets/demo/generate-sealed-demo.sh
-./k8s/addons/sealed-secrets/demo/generate-sealed-demo.sh
+# Writes to $HOME/sealedsecret-demo.yaml by default (works when /opt/mlops_project is not writable).
+bash k8s/addons/sealed-secrets/demo/generate-sealed-demo.sh
+# optional: DEMO_API_KEY='your-non-production-value' bash ...
+# optional: SEALED_SECRET_DEMO_OUT=/tmp/sealedsecret-demo.yaml bash ...
 ```
 
-Equivalent one-liner:
+Equivalent one-liner (output in your home directory):
 
 ```bash
 kubectl create secret generic demo-api-key --dry-run=client -n ml-platform \
-  --from-literal=api-key='demo-value-for-video' -o yaml | kubeseal -o yaml > k8s/addons/sealed-secrets/demo/sealedsecret-demo.yaml
+  --from-literal=api-key='demo-value-for-video' -o yaml | kubeseal -o yaml > ~/sealedsecret-demo.yaml
 ```
 
-**Note:** `sealedsecret-demo.yaml` is **cluster-specific**. If you regenerate on another cluster, commit the file that matches **your** demo cluster (or keep it out of Git and apply from CI artifacts).
+**Note:** `sealedsecret-demo.yaml` is **cluster-specific**. If you regenerate on another cluster, commit the file that matches **your** demo cluster (or keep it out of Git and apply from CI artifacts). Copy from `$HOME` into the repo if you want it under `k8s/addons/sealed-secrets/demo/`.
 
 ## Apply demo workload
 
 ```bash
-kubectl apply -f k8s/addons/sealed-secrets/demo/sealedsecret-demo.yaml
+kubectl apply -f ~/sealedsecret-demo.yaml
+# or: kubectl apply -f k8s/addons/sealed-secrets/demo/sealedsecret-demo.yaml  (if you copied the file there)
 kubectl apply -k k8s/addons/sealed-secrets/demo/
 kubectl rollout status -n ml-platform deploy/sealed-secrets-demo
 kubectl logs -n ml-platform deploy/sealed-secrets-demo --tail=5
