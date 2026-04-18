@@ -19,7 +19,7 @@ Clone or vendor the chart, then install with team overrides:
 ```bash
 # Example only — adjust paths to where you vendor the chart
 helm dependency update ./zulip-chart
-helm install zulip-proj99 ./zulip-chart \
+helm install zulip-proj15 ./zulip-chart \
   --namespace zulip \
   --create-namespace \
   -f values-chameleon.yaml \

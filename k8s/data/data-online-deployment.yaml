@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
         - name: online
-          image: ghcr.io/proj15/zulip-chat-data-online:latest
+          image: ghcr.io/allusudharshanrao/mlops-data-online:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000

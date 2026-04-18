@@ -15,6 +15,18 @@ This directory is the **configuration-as-code** counterpart to Terraform IaC.
 - `helm` optional on the controller: the Zulip playbook installs Helm 3 on the target VM if missing
 - Optional: `kubectl` (helpful for verifying)
 
+### Windows (native PowerShell)
+
+`ansible-core` refuses to start if Python reports a non-UTF-8 **locale encoding** (common: **CP1252**), with:
+
+`ERROR: Ansible requires the locale encoding to be UTF-8; Detected 1252.`
+
+Pick **one** fix:
+
+1. **Recommended:** run Ansible from **WSL2 (Ubuntu)** — install `ansible-core` in a Linux venv there, copy or mount the repo, and use `inventory.ini` with a Linux path to your SSH key (e.g. under `~/.ssh/`, `chmod 600`). If `python3 -m venv .venv` fails with **ensurepip is not available**, run `sudo apt update && sudo apt install -y python3-venv` (or `python3.12-venv` to match your `python3 --version`), then `rm -rf .venv` and recreate the venv.
+2. **System-wide UTF-8 on Windows:** **Settings → Time & language → Language & region → Administrative language settings → Change system locale…** → enable **“Beta: Use Unicode UTF-8 for worldwide language support”** → **reboot** — then a Python venv + `pip install ansible-core` usually works in PowerShell.
+3. **Jump host:** run the same playbooks from another Linux/macOS machine with SSH to the Chameleon VM.
+
 ## Inventory
 
 Create `inventory.ini` (do **not** commit secrets):
@@ -60,9 +72,11 @@ Workflow, demo app, and rubric-style justification: [`k8s/addons/sealed-secrets/
 
 3) **Zulip — one-time prep on the VM** (SSH as `cc`; Ansible runs Helm on the **VM**, so paths below are **on the VM**, not your laptop):
 
+`deploy_zulip.yml` **clones** `https://github.com/zulip/docker-zulip.git` into `/home/cc/docker-zulip` when `zulip_chart_dir` is missing (default `/home/cc/docker-zulip/helm/zulip`). You can still clone manually first if you prefer.
+
 ```bash
-# Chart source (if you do not already have it)
-git clone --depth 1 https://github.com/zulip/docker-zulip.git ~/docker-zulip
+# Optional manual chart clone (skip if the playbook already cloned it)
+# git clone --depth 1 https://github.com/zulip/docker-zulip.git ~/docker-zulip
 
 # Secrets file (never commit). Pick either:
 cp ~/docker-zulip/helm/zulip/values-local.yaml.example ~/values-secret.yaml
@@ -78,7 +92,7 @@ Use a hostname you can open in a browser. For a floating IP only, a common patte
 cd infra/ansible
 ansible-playbook -i inventory.ini playbooks/deploy_zulip.yml \
   -e zulip_chart_dir=/home/cc/docker-zulip/helm/zulip \
-  -e project_id_suffix=proj99 \
+  -e project_id_suffix=proj15 \
   -e zulip_values_file=/opt/mlops_project/k8s/zulip/values-chameleon.yaml \
   -e zulip_secret_values_file=/home/cc/values-secret.yaml
 ```
@@ -88,6 +102,14 @@ Adjust `zulip_chart_dir` if you cloned somewhere other than `~/docker-zulip`. St
 `values-secret.yaml` (on the VM as `~/values-secret.yaml` in the example) must stay **out of Git**.
 
 Alternative without a chart clone on the VM: on the VM run `helm install ... oci://ghcr.io/zulip/helm-charts/zulip -f ...` yourself; this playbook expects a local chart directory for `helm dependency update`.
+
+5) **ML workloads (data / serving / training)** — after [`.github/workflows/build-push-ml-images.yml`](../../.github/workflows/build-push-ml-images.yml) has pushed images to GHCR and `deploy_platform` has refreshed `k8s/` on the VM:
+
+```bash
+ansible-playbook -i inventory.ini playbooks/deploy_ml_workloads.yml
+```
+
+See [`k8s/ML_INTEGRATION.md`](../../k8s/ML_INTEGRATION.md) for image naming, MinIO buckets, and GHCR visibility. This does **not** edit source under `data/`, `serving/`, or `training_proj15-main/`.
 
 ## Troubleshooting
 

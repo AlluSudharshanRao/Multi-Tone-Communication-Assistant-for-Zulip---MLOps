@@ -42,7 +42,7 @@ spec:
       # runtimeClassName: nvidia   # Uncomment for Blazar GPU node
       containers:
         - name: tone-generator
-          image: ghcr.io/rithwik0908/tone-generator:latest
+          image: ghcr.io/allusudharshanrao/mlops-serving-generator:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8010

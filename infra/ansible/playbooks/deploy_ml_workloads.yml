@@ -1,0 +1,45 @@
+---
+# Apply data / inference / training Kustomize bundles on the Chameleon VM.
+# Prerequisites: deploy_platform (namespaces, MinIO in ml-platform), k8s/ synced to /opt/mlops_project.
+# Copies minio-root into ml-data so data workloads can use secretKeyRef.
+# Does not modify application source under data/, serving/, or training_proj15-main/.
+#
+# Run from WSL (venv): ansible-playbook -i inventory.ini playbooks/deploy_ml_workloads.yml
+- name: Deploy ML data, serving, and training manifests
+  hosts: chameleon
+  become: true
+  gather_facts: false
+  vars:
+    kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
+    repo_root: "/opt/mlops_project"
+  tasks:
+    - name: Replicate minio-root Secret into ml-data namespace
+      ansible.builtin.shell: |
+        set -euo pipefail
+        kubectl --kubeconfig "{{ kubeconfig_path }}" get secret minio-root -n ml-platform -o json | python3 -c "
+        import json, sys
+        d = json.load(sys.stdin)
+        m = d['metadata']
+        for k in ('uid', 'resourceVersion', 'creationTimestamp', 'managedFields'):
+            m.pop(k, None)
+        m['namespace'] = 'ml-data'
+        d.pop('status', None)
+        print(json.dumps(d))
+        " | kubectl --kubeconfig "{{ kubeconfig_path }}" apply -f -
+      args:
+        executable: /bin/bash
+
+    - name: Apply data stack (ml-data)
+      ansible.builtin.command: >
+        kubectl --kubeconfig {{ kubeconfig_path }}
+        apply -k {{ repo_root }}/k8s/data/
+
+    - name: Apply inference stack (ml-serving)
+      ansible.builtin.command: >
+        kubectl --kubeconfig {{ kubeconfig_path }}
+        apply -k {{ repo_root }}/k8s/inference/
+
+    - name: Apply training Job manifests (ml-training)
+      ansible.builtin.command: >
+        kubectl --kubeconfig {{ kubeconfig_path }}
+        apply -k {{ repo_root }}/k8s/training/

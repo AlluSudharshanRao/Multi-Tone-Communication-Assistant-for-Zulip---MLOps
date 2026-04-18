@@ -1,0 +1,66 @@
+# ML workloads integration (DevOps path)
+
+Application code under `data/`, `serving/`, and `training_proj15-main/` is **not** modified here. Integration is:
+
+1. **Build & push images** (GitHub Actions) from those Dockerfiles to **GHCR**.
+2. **Point Kubernetes** manifests under `k8s/data/`, `k8s/inference/`, and `k8s/training/` at those images.
+3. **Apply** manifests on the cluster and ensure **MinIO** credentials exist where Jobs/Deployments expect them.
+
+## 1. Image names and registry
+
+Workflow: [`.github/workflows/build-push-ml-images.yml`](../.github/workflows/build-push-ml-images.yml).
+
+Images are pushed as:
+
+`ghcr.io/<lowercase_github_owner>/mlops-<component>:latest` (and `:sha`).
+
+Manifests in this repo default to **`ghcr.io/allusudharshanrao/mlops-...`**. If your GitHub user or org differs, replace that segment (case-insensitive registry owner → **lowercase**) in:
+
+- `k8s/data/*.yaml`
+- `k8s/inference/*.yaml`
+- `k8s/training/*.yaml`
+
+or change the workflow output to match your fork’s owner after the first successful CI run.
+
+**GHCR visibility:** For k3s to pull without `imagePullSecrets`, packages must be **public** or you must add a **docker-registry** Secret in each namespace (`ml-data`, `ml-serving`, `ml-training`) and set `imagePullSecrets` on workloads (not done in the base manifests).
+
+## 2. Run CI
+
+On GitHub: **Actions → “Build and push ML images” → Run workflow**, or push to `main`/`master` touching `data/`, `serving/`, or `training_proj15-main/training/`.
+
+Wait for all matrix jobs to finish (large training images may take several minutes).
+
+## 3. Sync manifests to the VM
+
+Re-run **`deploy_platform.yml`** from your laptop (it copies `k8s/` to `/opt/mlops_project/k8s/`), or `rsync`/git pull on the VM so updated image lines are present.
+
+## 4. Apply workloads on the cluster
+
+From WSL (Ansible venv), after **`inventory.ini`** and SSH work:
+
+```bash
+cd infra/ansible
+source .venv/bin/activate
+ansible-playbook -i inventory.ini playbooks/deploy_ml_workloads.yml
+```
+
+To run the same steps manually on the VM, mirror the tasks in `infra/ansible/playbooks/deploy_ml_workloads.yml` (Secret copy + three `kubectl apply -k` commands).
+
+## 5. MinIO buckets
+
+- **Data stack** manifests use bucket **`zulip-rewriter`** (see env in `k8s/data/*.yaml`). Create it in the MinIO console (or `mc`) if empty.
+- **Training Jobs** reference bucket **`proj15`** in the Job YAML — align with your real bucket policy or change **only** the `k8s/training/*.yaml` env (DevOps manifests), not training scripts.
+
+## 6. Verify
+
+```bash
+kubectl get pods -n ml-data
+kubectl get pods -n ml-serving
+kubectl get jobs,pods -n ml-training
+```
+
+`ImagePullBackOff` → image name/registry mismatch or private package without pull secret. `CrashLoopBackOff` → app/config (logs), not Dockerfile layout.
+
+## 7. Training Jobs
+
+Jobs are **one-shot**: after a successful run they may remain `Completed`. Re-run with `kubectl delete job …` then `kubectl apply -k …/training/` if you need another run.

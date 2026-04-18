@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: generator
-          image: ghcr.io/proj15/zulip-chat-data-generator:latest
+          image: ghcr.io/allusudharshanrao/mlops-data-generator:latest
           imagePullPolicy: IfNotPresent
           env:
             - name: REWRITE_URL

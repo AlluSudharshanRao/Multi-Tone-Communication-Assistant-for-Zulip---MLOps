@@ -11,7 +11,7 @@ variable "kube_context" {
 }
 
 variable "project_id_suffix" {
-  description = "Course project id suffix, e.g. proj99 — used in Helm release names"
+  description = "Course project id suffix, e.g. proj15 — used in Helm release names"
   type        = string
 }
 

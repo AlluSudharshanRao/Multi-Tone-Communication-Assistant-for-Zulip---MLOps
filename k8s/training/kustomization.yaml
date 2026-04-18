@@ -1,0 +1,8 @@
+# Kustomize bundle: training Jobs (run-to-completion).
+# Apply: kubectl apply -k k8s/training/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ml-training
+resources:
+  - classifier-training-job.yaml
+  - generator-training-job.yaml

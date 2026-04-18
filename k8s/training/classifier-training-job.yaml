@@ -36,7 +36,7 @@ spec:
       containers:
         - name: classifier-training
           # Replace with actual image after Data/Training team publishes build.
-          image: ghcr.io/proj15/classifier-training:latest
+          image: ghcr.io/allusudharshanrao/mlops-training-classifier:latest
           imagePullPolicy: IfNotPresent
           env:
             - name: MLFLOW_TRACKING_URI

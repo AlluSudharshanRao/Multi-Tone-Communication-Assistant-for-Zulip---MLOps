@@ -34,7 +34,7 @@ spec:
       # runtimeClassName: nvidia   # Uncomment for GPU node
       containers:
         - name: generator-training
-          image: ghcr.io/proj15/generator-training:latest
+          image: ghcr.io/allusudharshanrao/mlops-training-generator:latest
           imagePullPolicy: IfNotPresent
           env:
             - name: MLFLOW_TRACKING_URI

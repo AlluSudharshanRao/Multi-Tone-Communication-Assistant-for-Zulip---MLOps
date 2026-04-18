@@ -8,7 +8,7 @@
   gather_facts: false
   vars:
     kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
-    project_id_suffix: "proj99"
+    project_id_suffix: "proj15"
     release_name: "zulip-{{ project_id_suffix }}"
     zulip_k8s_namespace: "zulip"
 
@@ -45,6 +45,20 @@
         create namespace {{ zulip_k8s_namespace }}
       register: ns_create
       failed_when: ns_create.rc != 0 and ("AlreadyExists" not in (ns_create.stderr | default("")))
+
+    - name: Check if Zulip chart directory exists on the VM
+      ansible.builtin.stat:
+        path: "{{ zulip_chart_dir }}"
+      register: zulip_chart_stat
+
+    # Default layout: zulip_chart_dir = /home/<cc>/docker-zulip/helm/zulip — clone parent repo if missing.
+    - name: Clone docker-zulip chart source (if chart path missing)
+      when: not zulip_chart_stat.stat.exists
+      become_user: "{{ ansible_user }}"
+      ansible.builtin.git:
+        repo: https://github.com/zulip/docker-zulip.git
+        dest: "{{ zulip_chart_dir | dirname | dirname }}"
+        depth: 1
 
     - name: Update chart dependencies
       ansible.builtin.command: helm dependency update {{ zulip_chart_dir }}

@@ -22,7 +22,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: batch
-          image: ghcr.io/proj15/zulip-chat-data-batch:latest
+          image: ghcr.io/allusudharshanrao/mlops-data-batch:latest
           imagePullPolicy: IfNotPresent
           env:
             - name: MINIO_BUCKET
