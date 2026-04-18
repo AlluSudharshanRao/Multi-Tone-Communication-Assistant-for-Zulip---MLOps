@@ -42,7 +42,7 @@ Traffic flow: **Internet → floating IP :443 → Traefik → Ingress rules → 
 
 ## 2. Prerequisites
 
-- **Chameleon Cloud** project, lease/reservation, and an Ubuntu image (e.g. `CC-Ubuntu24.04`) on `KVM@TACC`.
+- **Chameleon Cloud** project, lease/reservation, and an Ubuntu image (e.g. `CC-Ubuntu24.04`) on `KVM@TACC`. **Project 15 system integration lease** (`System_Integration_proj15`) is **ACTIVE**; reservation id and `openstack_tenant_id` are set in [`infra/terraform/openstack/terraform.tfvars.example`](infra/terraform/openstack/terraform.tfvars.example) — copy to private `terraform.tfvars`, set **`key_pair`** and **`network_id`**, add application credentials, then run Terraform.
 - **OpenStack access**: application credential (recommended) or username/password; see `infra/terraform/openstack/providers.tf` comments.
 - **Tools on your workstation** (Linux, WSL2, or macOS recommended):
   - Terraform ≥ 1.x
@@ -276,7 +276,7 @@ cd infra/ansible
 
 ansible-playbook -i inventory.ini playbooks/deploy_zulip.yml \
   -e zulip_chart_dir=/home/cc/docker-zulip/helm/zulip \
-  -e project_id_suffix=proj99 \
+  -e project_id_suffix=proj15 \
   -e zulip_values_file=/opt/mlops_project/k8s/zulip/values-chameleon.yaml \
   -e zulip_secret_values_file=/home/cc/values-secret.yaml
 ```
@@ -286,7 +286,7 @@ Adjust `zulip_chart_dir` if you cloned docker-zulip elsewhere. The playbook runs
 **Manual Helm equivalent** (on the VM), after `helm dependency update` inside the chart directory:
 
 ```bash
-helm upgrade --install zulip-proj99 /home/cc/docker-zulip/helm/zulip \
+helm upgrade --install zulip-proj15 /home/cc/docker-zulip/helm/zulip \
   --namespace zulip \
   --kubeconfig "$HOME/.kube/config" \
   -f /opt/mlops_project/k8s/zulip/values-chameleon.yaml \

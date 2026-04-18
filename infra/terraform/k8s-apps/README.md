@@ -21,7 +21,7 @@ Terraform manages **cluster configuration**: namespaces and (optionally) Helm in
 
 ```bash
 terraform init
-terraform apply -var="project_id_suffix=proj99" -var="kubeconfig_path=$HOME/.kube/config"
+terraform apply -var="project_id_suffix=proj15" -var="kubeconfig_path=$HOME/.kube/config"
 ```
 
 ## Namespaces vs `k8s/base/namespaces.yaml`

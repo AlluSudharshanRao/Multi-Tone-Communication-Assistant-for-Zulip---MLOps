@@ -36,7 +36,7 @@ spec:
     spec:
       containers:
         - name: classifier-quantized
-          image: ghcr.io/rithwik0908/tone-classifier:latest
+          image: ghcr.io/allusudharshanrao/mlops-serving-classifier:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8001

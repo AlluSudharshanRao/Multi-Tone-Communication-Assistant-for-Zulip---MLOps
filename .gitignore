@@ -20,6 +20,9 @@ values-secret.yaml
 crash.log
 terraform.tfvars
 **/terraform.tfvars
+# Local OpenStack client config (often contains application_credential_secret)
+clouds.yaml
+**/clouds.yaml
 
 # Vendored upstream clones (optional local copies)
 vendor/docker-zulip/

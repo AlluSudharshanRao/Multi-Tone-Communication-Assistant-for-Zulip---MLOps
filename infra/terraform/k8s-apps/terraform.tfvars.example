@@ -1,4 +1,4 @@
-project_id_suffix = "proj99"
+project_id_suffix = "proj15"
 kubeconfig_path   = "~/.kube/config"
 # kube_context    = "default"
 

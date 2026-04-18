@@ -36,13 +36,13 @@ ingress:
   enabled: true
   className: traefik
   hosts:
-    - host: zulip.129.114.27.243.nip.io
+    - host: zulip.129.114.27.192.nip.io
       paths:
         - path: /
   tls:
     - secretName: chameleon-nip-tls
       hosts:
-        - zulip.129.114.27.243.nip.io
+        - zulip.129.114.27.192.nip.io
 
 # Main Zulip container (chart root key — not under zulip:). Sized from kubectl top (~4.3 GiB RSS light load; ~196 m CPU busier).
 resources:

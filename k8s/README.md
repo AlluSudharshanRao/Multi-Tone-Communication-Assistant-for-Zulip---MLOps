@@ -14,3 +14,5 @@ Namespaces are defined in [`base/namespaces.yaml`](base/namespaces.yaml). Apply 
 | [`addons/sealed-secrets/`](addons/sealed-secrets/) | `kube-system` / `ml-platform` (demo) | Optional — Sealed Secrets controller + demo |
 
 **Team container ↔ manifest table:** [`containers-matrix.md`](containers-matrix.md).
+
+**ML integration (build images + apply data / inference / training):** [`ML_INTEGRATION.md`](ML_INTEGRATION.md) and Ansible [`../infra/ansible/playbooks/deploy_ml_workloads.yml`](../infra/ansible/playbooks/deploy_ml_workloads.yml).

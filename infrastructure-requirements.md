@@ -21,6 +21,17 @@ The cluster runs on one OpenStack instance provisioned by Terraform (`infra/terr
 
 **OpenStack alignment:** Flavor or reservation **vCPU and RAM** from Horizon or `openstack server show` / `openstack flavor show` should agree with the node capacity above. **Disk:** the root (or data) volume must accommodate **80 Gi** in bound **PersistentVolumeClaims** (see §3) plus the operating system, container images, and logs; `local-path` consumes host filesystem space.
 
+**Recorded Blazar lease (system integration, proj15):** values mirror Horizon and `infra/terraform/openstack/terraform.tfvars.example`. The lease is **ACTIVE** — proceed with `terraform apply` after filling **`key_pair`**, **`network_id`**, and application credentials (see `terraform.tfvars.example`).
+
+| Field | Value |
+|--------|--------|
+| Lease name | `System_Integration_proj15` |
+| Lease id | `8b52d264-ccf7-46d7-86d7-e10e0e2aac80` |
+| OpenStack project id | `89f528973fea4b3a981f9b2344e522de` |
+| Reservation id (Terraform `blazar_reservation_id`) | `7761d93f-8947-4fd7-b922-defe7dd7c024` |
+| Window (UTC) | Start `2026-04-18 20:10` — End `2026-04-29 05:00` |
+| Bundle | 1× `m1.xxlarge`: 16 vCPU, 32768 MiB RAM, 40 GB disk (GPU forbidden) |
+
 ---
 
 ## 2. Platform services (Kubernetes manifests)

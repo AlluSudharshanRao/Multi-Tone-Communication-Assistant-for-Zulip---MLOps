@@ -1,5 +1,5 @@
 variable "project_id_suffix" {
-  description = "Course project id suffix for resource names, e.g. proj99"
+  description = "Course project id suffix for resource names, e.g. proj15"
   type        = string
 }
 

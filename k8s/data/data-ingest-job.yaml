@@ -22,7 +22,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: ingest
-          image: ghcr.io/proj15/zulip-chat-data-ingest:latest
+          image: ghcr.io/allusudharshanrao/mlops-data-ingest:latest
           imagePullPolicy: IfNotPresent
           env:
             - name: MINIO_BUCKET

@@ -48,9 +48,9 @@ spec:
                   key: root-password
             # Public URLs behind Ingress/TLS (edit if your floating IP / hosts differ).
             - name: MINIO_SERVER_URL
-              value: "https://minio.129.114.27.243.nip.io"
+              value: "https://minio.129.114.27.192.nip.io"
             - name: MINIO_BROWSER_REDIRECT_URL
-              value: "https://minio-console.129.114.27.243.nip.io"
+              value: "https://minio-console.129.114.27.192.nip.io"
           volumeMounts:
             - name: data
               mountPath: /data
