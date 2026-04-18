@@ -1,0 +1,53 @@
+# data/generator — calls online /rewrite on an interval (Compose: generator).
+# Dockerfile: https://github.com/Hard-Hustler/Zulip_Chat_Feature/blob/main/data/generator/Dockerfile
+# Depends on: data-online Service + platform MinIO
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-generator
+  namespace: ml-data
+  labels:
+    app: data-generator
+    role: data
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: data-generator
+  template:
+    metadata:
+      labels:
+        app: data-generator
+        role: data
+    spec:
+      containers:
+        - name: generator
+          image: ghcr.io/proj15/zulip-chat-data-generator:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REWRITE_URL
+              value: "http://data-online.ml-data.svc.cluster.local:8000/rewrite"
+            - name: MINIO_BUCKET
+              value: "zulip-rewriter"
+            - name: MINIO_ENDPOINT
+              value: "http://minio.ml-platform.svc.cluster.local:9000"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-user
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-password
+            - name: RATE_SECONDS
+              value: "2"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi

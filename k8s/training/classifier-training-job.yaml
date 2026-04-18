@@ -1,0 +1,128 @@
+# Classifier Training Job — fine-tunes DistilBERT on GYAFC + Stanford Politeness Corpus.
+# Owned by: Data / Training Engineer role.
+# Dockerfile: teammate repo (see k8s/containers-matrix.md)
+# Namespace: ml-training  (provisioned in k8s/base/namespaces.yaml)
+#
+# This is a Kubernetes Job (run-to-completion), not a long-running Deployment.
+# Triggered manually or by CI/CD on new data or drift detection.
+# Logs metrics and model artefacts to MLflow (ml-platform namespace).
+# Saves model weights to MinIO bucket proj15/classifier/.
+#
+# Apply: kubectl apply -f k8s/training/classifier-training-job.yaml
+# Monitor: kubectl logs -n ml-training -l job-name=classifier-training -f
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: classifier-training
+  namespace: ml-training
+  labels:
+    app: classifier-training
+    role: training
+    model: distilbert
+spec:
+  # Allow 1 retry on transient failure (e.g. MinIO connectivity at startup).
+  backoffLimit: 1
+  # Clean up completed pod after 1 hour to free node resources.
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: classifier-training
+        role: training
+        model: distilbert
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: classifier-training
+          # Replace with actual image after Data/Training team publishes build.
+          image: ghcr.io/proj15/classifier-training:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: "http://mlflow.ml-platform.svc.cluster.local:5000"
+            - name: MLFLOW_EXPERIMENT_NAME
+              value: "tone-classifier"
+            - name: MINIO_ENDPOINT
+              value: "minio.ml-platform.svc.cluster.local:9000"
+            - name: MINIO_BUCKET
+              value: "proj15"
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-password
+            - name: DATA_PATH
+              value: "/data"
+            - name: OUTPUT_PATH
+              value: "/output"
+            # Training hyperparameters — override via env or configmap as needed.
+            - name: NUM_EPOCHS
+              value: "5"
+            - name: BATCH_SIZE
+              value: "32"
+            - name: LEARNING_RATE
+              value: "2e-5"
+            - name: F1_THRESHOLD
+              value: "0.85"
+          volumeMounts:
+            - name: training-data
+              mountPath: /data
+            - name: output
+              mountPath: /output
+          resources:
+            # CPU training for DistilBERT at class scale.
+            # Increase CPU/memory for larger datasets; GPU not required for fine-tuning
+            # at this scale but can be added via the commented block below.
+            requests:
+              cpu: "2"
+              memory: "4Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+            # --- GPU block (uncomment for Blazar GPU reservation) ---
+            # requests:
+            #   cpu: "2"
+            #   memory: "8Gi"
+            #   nvidia.com/gpu: "1"
+            # limits:
+            #   cpu: "4"
+            #   memory: "16Gi"
+            #   nvidia.com/gpu: "1"
+      volumes:
+        - name: training-data
+          emptyDir: {}
+          # TODO: replace with PVC or init-container that syncs datasets from MinIO.
+          # Example init-container:
+          # initContainers:
+          #   - name: pull-data
+          #     image: minio/mc:latest
+          #     command:
+          #       - sh
+          #       - -c
+          #       - |
+          #         mc alias set minio http://$MINIO_ENDPOINT $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
+          #         mc cp --recursive minio/proj15/datasets/ /data/
+          #     env:
+          #       - name: MINIO_ENDPOINT
+          #         value: "minio.ml-platform.svc.cluster.local:9000"
+          #       - name: MINIO_ROOT_USER
+          #         valueFrom:
+          #           secretKeyRef:
+          #             name: minio-root
+          #             key: root-user
+          #       - name: MINIO_ROOT_PASSWORD
+          #         valueFrom:
+          #           secretKeyRef:
+          #             name: minio-root
+          #             key: root-password
+          #     volumeMounts:
+          #       - name: training-data
+          #         mountPath: /data
+        - name: output
+          emptyDir: {}

@@ -1,0 +1,90 @@
+# Tone Classifier — Quantized backend (INT8 quantized DistilBERT, lowest latency).
+# Role owner: Serving (rithwik0908/mlops-serving)
+# Dockerfile: https://github.com/rithwik0908/mlops-serving/blob/main/serving/classifier/Dockerfile
+# Namespace: ml-serving
+#
+# Same image as classifier-pytorch/onnx; SERVING_BACKEND=quantized activates
+# model_quantized.py. Smallest memory footprint of the three classifier variants.
+#
+# Port: 8001 (from Dockerfile EXPOSE 8001)
+# Apply: kubectl apply -k k8s/inference/
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: classifier-quantized
+  namespace: ml-serving
+  labels:
+    app: classifier-quantized
+    role: serving
+    backend: quantized
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: classifier-quantized
+  template:
+    metadata:
+      labels:
+        app: classifier-quantized
+        role: serving
+        backend: quantized
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: classifier-quantized
+          image: ghcr.io/rithwik0908/tone-classifier:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8001
+              name: http
+          env:
+            - name: SERVING_BACKEND
+              value: "quantized"
+            - name: MODEL_PATH
+              value: "distilbert-base-uncased"
+            - name: ONNX_PATH
+              value: "/app/model_cache/classifier.onnx"
+            - name: DUMMY_MODE
+              value: "true"
+            - name: MLFLOW_TRACKING_URI
+              value: "http://mlflow.ml-platform.svc.cluster.local:5000"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            # Quantized model — smallest resource envelope of classifier variants.
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: classifier-quantized
+  namespace: ml-serving
+  labels:
+    app: classifier-quantized
+spec:
+  type: ClusterIP
+  selector:
+    app: classifier-quantized
+  ports:
+    - name: http
+      port: 8001
+      targetPort: http

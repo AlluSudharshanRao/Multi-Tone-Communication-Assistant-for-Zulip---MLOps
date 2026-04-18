@@ -1,0 +1,123 @@
+# Tone Classifier — ONNX backend (faster CPU inference via ONNX Runtime).
+# Role owner: Serving (rithwik0908/mlops-serving)
+# Dockerfile: https://github.com/rithwik0908/mlops-serving/blob/main/serving/classifier/Dockerfile
+# Namespace: ml-serving
+#
+# Same image as classifier-pytorch; SERVING_BACKEND=onnx activates model_onnx.py.
+# ONNX model file must be present at ONNX_PATH (mounted from MinIO via init-container
+# or pre-baked into image).
+#
+# Port: 8001 (from Dockerfile EXPOSE 8001)
+# Apply: kubectl apply -k k8s/inference/
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: classifier-onnx
+  namespace: ml-serving
+  labels:
+    app: classifier-onnx
+    role: serving
+    backend: onnx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: classifier-onnx
+  template:
+    metadata:
+      labels:
+        app: classifier-onnx
+        role: serving
+        backend: onnx
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: classifier-onnx
+          image: ghcr.io/rithwik0908/tone-classifier:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8001
+              name: http
+          env:
+            - name: SERVING_BACKEND
+              value: "onnx"
+            - name: MODEL_PATH
+              value: "distilbert-base-uncased"
+            - name: ONNX_PATH
+              value: "/app/model_cache/classifier.onnx"
+            - name: DUMMY_MODE
+              value: "true"
+            - name: MLFLOW_TRACKING_URI
+              value: "http://mlflow.ml-platform.svc.cluster.local:5000"
+          volumeMounts:
+            - name: model-cache
+              mountPath: /app/model_cache
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            # ONNX Runtime is lighter than full PyTorch — lower memory floor.
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+      volumes:
+        - name: model-cache
+          emptyDir: {}
+          # TODO: replace with init-container pulling classifier.onnx from MinIO:
+          # initContainers:
+          #   - name: pull-onnx-model
+          #     image: minio/mc:latest
+          #     command:
+          #       - sh
+          #       - -c
+          #       - |
+          #         mc alias set minio http://minio.ml-platform.svc.cluster.local:9000 \
+          #           $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
+          #         mc cp minio/proj15/classifier/classifier.onnx /app/model_cache/
+          #     env:
+          #       - name: MINIO_ROOT_USER
+          #         valueFrom:
+          #           secretKeyRef:
+          #             name: minio-root
+          #             key: root-user
+          #       - name: MINIO_ROOT_PASSWORD
+          #         valueFrom:
+          #           secretKeyRef:
+          #             name: minio-root
+          #             key: root-password
+          #     volumeMounts:
+          #       - name: model-cache
+          #         mountPath: /app/model_cache
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: classifier-onnx
+  namespace: ml-serving
+  labels:
+    app: classifier-onnx
+spec:
+  type: ClusterIP
+  selector:
+    app: classifier-onnx
+  ports:
+    - name: http
+      port: 8001
+      targetPort: http

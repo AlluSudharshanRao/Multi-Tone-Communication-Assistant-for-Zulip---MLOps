@@ -1,0 +1,10 @@
+project_id_suffix = "proj99"
+kubeconfig_path   = "~/.kube/config"
+# kube_context    = "default"
+
+deploy_zulip            = false
+zulip_helm_chart_path   = "" # e.g. "/path/to/docker-zulip/helm/zulip"
+zulip_values_files      = [] # e.g. ["../../../k8s/zulip/values-chameleon.yaml"]
+
+deploy_mlflow_helm   = false
+mlflow_chart_version = ""

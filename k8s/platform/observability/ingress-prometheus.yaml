@@ -1,0 +1,26 @@
+# Optional public UI for Prometheus (same TLS Secret as Grafana). Regenerate cert SAN to include this host.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+spec:
+  ingressClassName: traefik
+  tls:
+    - secretName: chameleon-nip-tls
+      hosts:
+        - prometheus.129.114.27.243.nip.io
+  rules:
+    - host: prometheus.129.114.27.243.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: prometheus
+                port:
+                  number: 9090

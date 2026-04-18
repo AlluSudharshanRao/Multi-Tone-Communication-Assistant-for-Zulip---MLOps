@@ -1,0 +1,37 @@
+project_id_suffix     = "proj99"
+# Use .../v3 for Keystone v3 (Chameleon KVM@TACC)
+openstack_auth_url    = "https://kvm.tacc.chameleoncloud.org:5000/v3"
+openstack_region      = "KVM@TACC"
+
+# Optional for v3applicationcredential (leave empty if using tenant_id below)
+openstack_tenant_name = ""
+openstack_user_name   = ""
+
+# Project UUID from Horizon (Identity → Application Credentials → Project ID); helps Terraform auth
+openstack_tenant_id = ""
+
+# Preferred on Chameleon with SSO: create in Horizon → Identity → Application Credentials
+# Do NOT commit real values; use TF_VAR_* or env OS_APPLICATION_CREDENTIAL_*
+application_credential_id     = ""
+application_credential_secret = ""
+
+# Required: image + network. For Blazar instance reservations (KVM@TACC), set blazar_reservation_id
+# and omit flavor or set flavor_name only when blazar_reservation_id is empty.
+image_name   = "CC-Ubuntu24.04"
+flavor_name  = "m1.large"
+# OpenStack keypair *name* (Compute → Key Pairs), not the local .pem filename
+key_pair     = "your_keypair_name"
+network_id   = "00000000-0000-0000-0000-000000000000"
+# Optional but recommended if your network has multiple subnets: subnet UUID (Horizon → Network → Subnets)
+# subnet_id = "00000000-0000-0000-0000-000000000000"
+security_groups = ["default"]
+# floating_ip_pool     = "public"
+
+# If you're using a Chameleon lease reservation, set this to the reservation UUID:
+# (from Horizon → Leases → your lease → Reservations → id)
+blazar_reservation_id = ""
+
+# Set false only if your project network already has a router to "public"
+create_public_router = true
+
+install_k3s_cloud_init = false

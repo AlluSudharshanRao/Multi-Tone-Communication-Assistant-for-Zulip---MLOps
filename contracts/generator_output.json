@@ -1,0 +1,20 @@
+{
+  "message_id": "msg_0042",
+  "original_text": "yo can u just fix the bug already its been 3 days lol",
+  "variants": {
+    "formal": {
+      "text": "Could you please address the bug at your earliest convenience? It has been unresolved for three days now.",
+      "confidence": 0.91
+    },
+    "friendly": {
+      "text": "Hey! Just checking in — the bug has been open for three days. Would you be able to take a look soon? Thanks!",
+      "confidence": 0.87
+    },
+    "neutral": {
+      "text": "The bug has been open for three days. Please fix it when you can.",
+      "confidence": 0.83
+    }
+  },
+  "offensive_content_flagged": false,
+  "total_latency_ms": 487.2
+}

@@ -1,0 +1,11 @@
+# Kustomize bundle: all ml-serving inference workloads.
+# Apply all: kubectl apply -k k8s/inference/
+# Apply single: kubectl apply -f k8s/inference/<manifest>.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ml-serving
+resources:
+  - classifier-pytorch-deployment.yaml
+  - classifier-onnx-deployment.yaml
+  - classifier-quantized-deployment.yaml
+  - generator-deployment.yaml

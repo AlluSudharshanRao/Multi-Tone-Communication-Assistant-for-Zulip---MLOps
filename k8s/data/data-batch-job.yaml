@@ -1,0 +1,50 @@
+# data/batch — batch pipeline (Compose: batch, profile batch).
+# Dockerfile: https://github.com/Hard-Hustler/Zulip_Chat_Feature/blob/main/data/batch/Dockerfile
+# Re-run: kubectl delete job -n ml-data data-batch --ignore-not-found && kubectl apply -f k8s/data/data-batch-job.yaml
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: data-batch
+  namespace: ml-data
+  labels:
+    app: data-batch
+    role: data
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: data-batch
+        role: data
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: batch
+          image: ghcr.io/proj15/zulip-chat-data-batch:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MINIO_BUCKET
+              value: "zulip-rewriter"
+            - name: MINIO_ENDPOINT
+              value: "http://minio.ml-platform.svc.cluster.local:9000"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-user
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-password
+            - name: DATA_VERSION
+              value: "v1"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 4Gi

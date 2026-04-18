@@ -1,0 +1,56 @@
+# data/online — HTTP service for rewrite/features (Compose: online).
+# Dockerfile: https://github.com/Hard-Hustler/Zulip_Chat_Feature/blob/main/data/online/Dockerfile
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-online
+  namespace: ml-data
+  labels:
+    app: data-online
+    role: data
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: data-online
+  template:
+    metadata:
+      labels:
+        app: data-online
+        role: data
+    spec:
+      containers:
+        - name: online
+          image: ghcr.io/proj15/zulip-chat-data-online:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: MINIO_BUCKET
+              value: "zulip-rewriter"
+            - name: MINIO_ENDPOINT
+              value: "http://minio.ml-platform.svc.cluster.local:9000"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-user
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-password
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi

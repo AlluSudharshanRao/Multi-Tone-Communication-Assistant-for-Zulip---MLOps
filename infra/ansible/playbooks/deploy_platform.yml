@@ -1,0 +1,85 @@
+---
+# Copies k8s/ to the VM; applies namespaces, MLflow, MinIO, and Prometheus/Grafana (monitoring).
+# Creates Secret grafana-admin in monitoring if missing (random password; retrieve with kubectl get secret -o jsonpath=...).
+# Creates Secret minio-root in ml-platform if missing (user minioadmin + random password).
+# Expects k3s and ~/.kube/config from k3s_install. Repo path on VM: /opt/mlops_project.
+# Run: ansible-playbook -i ../inventory.ini playbooks/deploy_platform.yml
+- name: Deploy namespaces + platform services (MLflow, MinIO, observability)
+  hosts: chameleon
+  become: true
+  gather_facts: false
+  vars:
+    kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
+    repo_root: "/opt/mlops_project"
+  tasks:
+    - name: Ensure git is installed
+      ansible.builtin.package:
+        name: git
+        state: present
+
+    - name: Ensure repo root directory exists
+      ansible.builtin.file:
+        path: "{{ repo_root }}"
+        state: directory
+        mode: "0755"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Copy manifests to VM (expects repo present locally)
+      ansible.builtin.copy:
+        src: "../../../k8s/"
+        dest: "{{ repo_root }}/k8s/"
+        mode: "0644"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Sealed-secrets demo script executable for ansible_user
+      ansible.builtin.file:
+        path: "{{ repo_root }}/k8s/addons/sealed-secrets/demo/generate-sealed-demo.sh"
+        mode: "0755"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Apply namespaces
+      ansible.builtin.command: >
+        kubectl --kubeconfig {{ kubeconfig_path }}
+        apply -f {{ repo_root }}/k8s/base/namespaces.yaml
+
+    - name: Apply MLflow kustomize
+      ansible.builtin.command: >
+        kubectl --kubeconfig {{ kubeconfig_path }}
+        apply -k {{ repo_root }}/k8s/platform/mlflow/
+
+    - name: Ensure MinIO root secret exists (ml-platform namespace)
+      ansible.builtin.shell: |
+        set -e
+        if kubectl --kubeconfig {{ kubeconfig_path }} get secret minio-root -n ml-platform >/dev/null 2>&1; then
+          exit 0
+        fi
+        kubectl --kubeconfig {{ kubeconfig_path }} create secret generic minio-root -n ml-platform \
+          --from-literal=root-user=minioadmin \
+          --from-literal=root-password="$(openssl rand -base64 24)"
+      args:
+        executable: /bin/bash
+
+    - name: Apply MinIO kustomize
+      ansible.builtin.command: >
+        kubectl --kubeconfig {{ kubeconfig_path }}
+        apply -k {{ repo_root }}/k8s/platform/minio/
+
+    - name: Ensure Grafana admin secret exists (monitoring namespace)
+      ansible.builtin.shell: |
+        set -e
+        if kubectl --kubeconfig {{ kubeconfig_path }} get secret grafana-admin -n monitoring >/dev/null 2>&1; then
+          exit 0
+        fi
+        kubectl --kubeconfig {{ kubeconfig_path }} create secret generic grafana-admin -n monitoring \
+          --from-literal=admin-password="$(openssl rand -base64 32)"
+      args:
+        executable: /bin/bash
+
+    - name: Apply Prometheus and Grafana kustomize
+      ansible.builtin.command: >
+        kubectl --kubeconfig {{ kubeconfig_path }}
+        apply -k {{ repo_root }}/k8s/platform/observability/
+

@@ -1,0 +1,88 @@
+# Team overrides for Helm install of Zulip (docker-zulip chart).
+# Ingress hosts must match SETTING_EXTERNAL_HOST in values-secret.yaml and TLS cert SANs.
+# Tracked hosts use the same floating IP as other platform Ingresses in this repo; replace everywhere if your FIP differs.
+# Required secrets and hostnames live in values-secret.yaml (gitignored); see
+# values-secret.yaml.example in this folder.
+#
+# Chart path upstream: docker-zulip/helm/zulip (not kubernetes/chart/zulip).
+
+# k3s default provisioner
+zulip:
+  persistence:
+    storageClass: "local-path"
+  environment:
+    # Applied last by docker entrypoint (after ZULIP_CUSTOM_SETTINGS). Use this so a secret file
+    # that replaces ZULIP_CUSTOM_SETTINGS cannot leave OPEN_REALM_CREATION off by accident.
+    SETTING_OPEN_REALM_CREATION: "True"
+    # Required for Zulip *nginx* (zulip.conf) — not the same as Django-only ZULIP_CUSTOM_SETTINGS.
+    # Comma-separated IPs/CIDRs; k3s pod network default. See docker-zulip entrypoint LOADBALANCER_IPS.
+    LOADBALANCER_IPS: "10.42.0.0/16"
+    # TLS terminates at Traefik (Ingress). Pod sees HTTP with X-Forwarded-Proto: https.
+    ZULIP_CUSTOM_SETTINGS: |
+      USE_X_FORWARDED_HOST = True
+      SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+      LOAD_BALANCER_IPS = ["10.42.0.0/16"]
+      # Stable URL (no token): https://<SETTING_EXTERNAL_HOST>/new/
+      # Anyone who can reach the server may start org creation; turn off for locked-down servers.
+      OPEN_REALM_CREATION = True
+
+# ClusterIP + Ingress (k3s default Traefik). OpenStack SG: TCP 80 + 443.
+service:
+  type: ClusterIP
+
+# Host MUST match zulip.environment.SETTING_EXTERNAL_HOST in values-secret.yaml.
+# TLS: create Secret `chameleon-nip-tls` in namespace `zulip` (see RUNBOOK_zulip_access_after_setup.md).
+ingress:
+  enabled: true
+  className: traefik
+  hosts:
+    - host: zulip.129.114.27.243.nip.io
+      paths:
+        - path: /
+  tls:
+    - secretName: chameleon-nip-tls
+      hosts:
+        - zulip.129.114.27.243.nip.io
+
+# Main Zulip container (chart root key — not under zulip:). Sized from kubectl top (~4.3 GiB RSS light load; ~196 m CPU busier).
+resources:
+  requests:
+    cpu: 500m
+    memory: 6Gi
+  limits:
+    cpu: "2"
+    memory: 8Gi
+
+postgresql:
+  primary:
+    persistence:
+      storageClass: "local-path"
+      size: "15Gi"
+
+# Optional: tighten resources after `kubectl top` (see repo root infrastructure-requirements.md)
+# postgresql:
+#   primary:
+#     resources:
+#       requests:
+#         cpu: 500m
+#         memory: 1Gi
+#       limits:
+#         cpu: "2"
+#         memory: 4Gi
+#
+# redis:
+#   master:
+#     persistence:
+#       enabled: true
+#       storageClass: local-path
+#       size: 4Gi
+#
+# rabbitmq:
+#   persistence:
+#     enabled: true
+#     storageClass: local-path
+#     size: 4Gi
+#
+# Trusted public certs (optional, more moving parts): install cert-manager + ClusterIssuer
+# and set e.g. cert-manager.io/cluster-issuer on the Ingress; Let's Encrypt HTTP-01 works
+# if port 80 is reachable on this host for the nip.io name.

@@ -1,0 +1,27 @@
+# HTTPS via Traefik; TLS Secret chameleon-nip-tls must exist in namespace monitoring.
+# Host must match GF_SERVER_ROOT_URL in deployment-grafana.yaml.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+spec:
+  ingressClassName: traefik
+  tls:
+    - secretName: chameleon-nip-tls
+      hosts:
+        - grafana.129.114.27.243.nip.io
+  rules:
+    - host: grafana.129.114.27.243.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  number: 3000

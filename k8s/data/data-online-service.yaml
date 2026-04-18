@@ -1,0 +1,18 @@
+# Service for data/online (Compose: ports 8000).
+# Teammate: https://github.com/Hard-Hustler/Zulip_Chat_Feature/blob/main/docker-compose.yml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-online
+  namespace: ml-data
+  labels:
+    app: data-online
+    role: data
+spec:
+  selector:
+    app: data-online
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

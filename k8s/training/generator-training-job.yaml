@@ -1,0 +1,90 @@
+# Generator Fine-Tuning Job — instruction-tunes LLM for tone-conditioned rewriting.
+# Owned by: Data / Training Engineer role.
+# Dockerfile: teammate repo (see k8s/containers-matrix.md)
+# Namespace: ml-training  (provisioned in k8s/base/namespaces.yaml)
+#
+# Kubernetes Job (run-to-completion). Heavier than classifier training;
+# GPU strongly recommended for reasonable wall-clock time.
+# Current manifest runs CPU-only (KVM@TACC node has no GPU).
+# GPU path: uncomment nvidia.com/gpu block + runtimeClassName.
+#
+# Apply: kubectl apply -f k8s/training/generator-training-job.yaml
+# Monitor: kubectl logs -n ml-training -l job-name=generator-training -f
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: generator-training
+  namespace: ml-training
+  labels:
+    app: generator-training
+    role: training
+    model: llm-generator
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: generator-training
+        role: training
+        model: llm-generator
+    spec:
+      restartPolicy: OnFailure
+      # runtimeClassName: nvidia   # Uncomment for GPU node
+      containers:
+        - name: generator-training
+          image: ghcr.io/proj15/generator-training:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: "http://mlflow.ml-platform.svc.cluster.local:5000"
+            - name: MLFLOW_EXPERIMENT_NAME
+              value: "tone-generator"
+            - name: MINIO_ENDPOINT
+              value: "minio.ml-platform.svc.cluster.local:9000"
+            - name: MINIO_BUCKET
+              value: "proj15"
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-password
+            - name: DEVICE
+              value: "cpu"   # Change to "cuda" for GPU node
+            - name: NUM_EPOCHS
+              value: "3"
+            - name: BATCH_SIZE
+              value: "8"
+          volumeMounts:
+            - name: training-data
+              mountPath: /data
+            - name: output
+              mountPath: /output
+          resources:
+            # CPU-only baseline. Swap in GPU block below for Blazar reservation.
+            requests:
+              cpu: "2"
+              memory: "8Gi"
+            limits:
+              cpu: "4"
+              memory: "16Gi"
+            # --- GPU block ---
+            # requests:
+            #   cpu: "4"
+            #   memory: "16Gi"
+            #   nvidia.com/gpu: "1"
+            # limits:
+            #   cpu: "8"
+            #   memory: "32Gi"
+            #   nvidia.com/gpu: "1"
+      volumes:
+        - name: training-data
+          emptyDir: {}
+        - name: output
+          emptyDir: {}

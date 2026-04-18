@@ -1,0 +1,94 @@
+# Tone Classifier — PyTorch backend (DistilBERT baseline).
+# Role owner: Serving (rithwik0908/mlops-serving)
+# Dockerfile: https://github.com/rithwik0908/mlops-serving/blob/main/serving/classifier/Dockerfile
+# Namespace: ml-serving
+#
+# One Dockerfile, three backends — differentiated by SERVING_BACKEND env var:
+#   pytorch     → this manifest (full PyTorch inference)
+#   onnx        → classifier-onnx-deployment.yaml
+#   quantized   → classifier-quantized-deployment.yaml
+#
+# Port: 8001 (from Dockerfile EXPOSE 8001)
+# Health: GET /health
+# Metrics: prometheus-client on :8001/metrics
+#
+# Apply: kubectl apply -k k8s/inference/
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: classifier-pytorch
+  namespace: ml-serving
+  labels:
+    app: classifier-pytorch
+    role: serving
+    backend: pytorch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: classifier-pytorch
+  template:
+    metadata:
+      labels:
+        app: classifier-pytorch
+        role: serving
+        backend: pytorch
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: classifier-pytorch
+          image: ghcr.io/rithwik0908/tone-classifier:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8001
+              name: http
+          env:
+            - name: SERVING_BACKEND
+              value: "pytorch"
+            - name: MODEL_PATH
+              value: "distilbert-base-uncased"
+            - name: DUMMY_MODE
+              # Set to "false" once model weights are published to registry.
+              value: "true"
+            - name: MLFLOW_TRACKING_URI
+              value: "http://mlflow.ml-platform.svc.cluster.local:5000"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            # PyTorch DistilBERT CPU inference.
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: classifier-pytorch
+  namespace: ml-serving
+  labels:
+    app: classifier-pytorch
+spec:
+  type: ClusterIP
+  selector:
+    app: classifier-pytorch
+  ports:
+    - name: http
+      port: 8001
+      targetPort: http

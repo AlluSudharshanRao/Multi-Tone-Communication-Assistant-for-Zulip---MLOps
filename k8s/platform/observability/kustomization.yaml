@@ -1,0 +1,15 @@
+# Prometheus (metrics) + Grafana (dashboards); PVC-backed TSDB and Grafana lib.
+# Apply after namespace monitoring exists and Secret grafana-admin is present (see deploy_platform / GETTING_STARTED).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: monitoring
+resources:
+  - rbac.yaml
+  - configmap-prometheus.yaml
+  - pvc-prometheus.yaml
+  - deployment-prometheus.yaml
+  - configmap-grafana-datasources.yaml
+  - pvc-grafana.yaml
+  - deployment-grafana.yaml
+  - ingress-grafana.yaml
+  - ingress-prometheus.yaml

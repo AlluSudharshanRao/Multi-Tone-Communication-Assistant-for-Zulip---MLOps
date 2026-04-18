@@ -1,0 +1,103 @@
+# Tone Generator — Instruction-tuned LLM (google/flan-t5-base).
+# Role owner: Serving (rithwik0908/mlops-serving)
+# Dockerfile: https://github.com/rithwik0908/mlops-serving/blob/main/serving/generator/Dockerfile
+# Namespace: ml-serving
+#
+# Port: 8010 (from Dockerfile EXPOSE 8010)
+# Health: GET /health
+# Calls classifier internally via CLASSIFIER_URL for post-rewrite tone validation.
+# Latency budget: 600 ms (LATENCY_BUDGET_MS env var, from Dockerfile default).
+#
+# GPU NOTE: Production target is 1x GPU (Blazar gpu_rtx_6000).
+# Current manifest is CPU-only for KVM@TACC node.
+# To enable GPU: uncomment nvidia.com/gpu block + runtimeClassName.
+#
+# Apply: kubectl apply -k k8s/inference/
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tone-generator
+  namespace: ml-serving
+  labels:
+    app: tone-generator
+    role: serving
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tone-generator
+  template:
+    metadata:
+      labels:
+        app: tone-generator
+        role: serving
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8010"
+        prometheus.io/path: "/metrics"
+    spec:
+      # runtimeClassName: nvidia   # Uncomment for Blazar GPU node
+      containers:
+        - name: tone-generator
+          image: ghcr.io/rithwik0908/tone-generator:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8010
+              name: http
+          env:
+            - name: DUMMY_MODE
+              value: "true"
+            - name: MODEL_NAME
+              value: "google/flan-t5-base"
+            - name: CLASSIFIER_URL
+              # Points to active classifier variant. Switch to onnx/quantized for lower latency.
+              value: "http://classifier-pytorch.ml-serving.svc.cluster.local:8001"
+            - name: LATENCY_BUDGET_MS
+              value: "600"
+            - name: MLFLOW_TRACKING_URI
+              value: "http://mlflow.ml-platform.svc.cluster.local:5000"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+            # --- GPU block (uncomment for Blazar gpu_rtx_6000 reservation) ---
+            # requests:
+            #   cpu: "2"
+            #   memory: "8Gi"
+            #   nvidia.com/gpu: "1"
+            # limits:
+            #   cpu: "4"
+            #   memory: "16Gi"
+            #   nvidia.com/gpu: "1"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tone-generator
+  namespace: ml-serving
+  labels:
+    app: tone-generator
+spec:
+  type: ClusterIP
+  selector:
+    app: tone-generator
+  ports:
+    - name: http
+      port: 8010
+      targetPort: http

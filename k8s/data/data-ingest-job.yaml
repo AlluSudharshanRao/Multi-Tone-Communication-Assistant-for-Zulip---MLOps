@@ -1,0 +1,50 @@
+# data/ingest — one-shot ingest (Compose: ingest).
+# Dockerfile: https://github.com/Hard-Hustler/Zulip_Chat_Feature/blob/main/data/ingest/Dockerfile
+# Re-run: kubectl delete job -n ml-data data-ingest --ignore-not-found && kubectl apply -f k8s/data/data-ingest-job.yaml
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: data-ingest
+  namespace: ml-data
+  labels:
+    app: data-ingest
+    role: data
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: data-ingest
+        role: data
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: ingest
+          image: ghcr.io/proj15/zulip-chat-data-ingest:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MINIO_BUCKET
+              value: "zulip-rewriter"
+            - name: MINIO_ENDPOINT
+              value: "http://minio.ml-platform.svc.cluster.local:9000"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-user
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-password
+            - name: DATA_VERSION
+              value: "v1"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
