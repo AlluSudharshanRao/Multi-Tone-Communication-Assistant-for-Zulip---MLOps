@@ -1,4 +1,6 @@
-# Tone Generator — Instruction-tuned LLM (google/flan-t5-base).
+# Tone Generator — supports:
+#   - Seq2seq: Flan-T5 (GENERATOR_BACKEND=seq2seq, default)
+#   - Causal + optional LoRA: same as training_proj15 train_llm.py (GENERATOR_BACKEND=causal, PEFT_MODEL_PATH)
 # Role owner: Serving (rithwik0908/mlops-serving)
 # Dockerfile: https://github.com/rithwik0908/mlops-serving/blob/main/serving/generator/Dockerfile
 # Namespace: ml-serving
@@ -48,8 +50,13 @@ spec:
           env:
             - name: DUMMY_MODE
               value: "true"
+            - name: GENERATOR_BACKEND
+              value: "seq2seq"
+            # For training-aligned LoRA: causal + mount adapter from MinIO/initContainer; set MODEL_NAME to base (e.g. SmolLM2-135M-Instruct)
             - name: MODEL_NAME
               value: "google/flan-t5-base"
+            - name: PEFT_MODEL_PATH
+              value: ""
             - name: CLASSIFIER_URL
               # Points to active classifier variant. Switch to onnx/quantized for lower latency.
               value: "http://classifier-pytorch.ml-serving.svc.cluster.local:8001"

@@ -3,11 +3,21 @@
 # Run (dummy mode, no GPU needed — default):
 #   docker run -p 8010:8010 tone-generator
 #
-# Run (real LLM on GPU):
+# Run (real seq2seq on GPU — Flan-T5):
 #   docker run --gpus all \
 #     -e DUMMY_MODE=false \
+#     -e GENERATOR_BACKEND=seq2seq \
 #     -e MODEL_NAME=google/flan-t5-base \
 #     -e CLASSIFIER_URL=http://classifier:8001 \
+#     -p 8010:8010 tone-generator
+#
+# Run (real causal + LoRA — same stack as training_proj15 train_llm.py):
+#   docker run --gpus all \
+#     -e DUMMY_MODE=false \
+#     -e GENERATOR_BACKEND=causal \
+#     -e MODEL_NAME=HuggingFaceTB/SmolLM2-135M-Instruct \
+#     -e PEFT_MODEL_PATH=/models/lora \
+#     -v /path/to/lora_checkpoint:/models/lora:ro \
 #     -p 8010:8010 tone-generator
 
 FROM python:3.11-slim
@@ -18,14 +28,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install core deps only (no torch in dummy mode)
+# Core API deps + optional torch/transformers/peft for DUMMY_MODE=false
+COPY requirements-llm.txt ./
+ARG INSTALL_LLM_DEPS=true
 RUN pip install --no-cache-dir \
     fastapi==0.111.0 \
     "uvicorn[standard]==0.29.0" \
     pydantic==2.7.1 \
     numpy==1.26.4 \
     prometheus-client==0.20.0 \
-    httpx==0.27.0
+    httpx==0.27.0 \
+    && if [ "$INSTALL_LLM_DEPS" = "true" ]; then \
+      pip install --no-cache-dir -r requirements-llm.txt; \
+    fi
 
 COPY app.py model.py ./
 
@@ -34,7 +49,9 @@ RUN useradd -m -u 1000 appuser
 USER appuser
 
 ENV DUMMY_MODE=true
+ENV GENERATOR_BACKEND=seq2seq
 ENV MODEL_NAME=google/flan-t5-base
+ENV PEFT_MODEL_PATH=
 ENV CLASSIFIER_URL=http://classifier:8001
 ENV LATENCY_BUDGET_MS=600
 

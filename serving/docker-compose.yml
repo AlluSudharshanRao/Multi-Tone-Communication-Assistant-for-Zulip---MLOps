@@ -96,7 +96,10 @@ services:
     container_name: generator
     environment:
       DUMMY_MODE: "true"           # set to false + MODEL_NAME on GPU instance
+      # seq2seq (Flan-T5): GENERATOR_BACKEND=seq2seq (default). Causal + LoRA (training_proj15): causal + PEFT_MODEL_PATH
+      GENERATOR_BACKEND: seq2seq
       MODEL_NAME: google/flan-t5-base
+      PEFT_MODEL_PATH: ""
       CLASSIFIER_URL: http://classifier-pytorch:8001
       LATENCY_BUDGET_MS: "600"
     ports:
@@ -121,7 +124,9 @@ services:
     container_name: generator-gpu
     environment:
       DUMMY_MODE: "false"
+      GENERATOR_BACKEND: seq2seq
       MODEL_NAME: google/flan-t5-base
+      PEFT_MODEL_PATH: ""
       CLASSIFIER_URL: http://classifier-pytorch:8001
       LATENCY_BUDGET_MS: "600"
     ports:
