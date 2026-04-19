@@ -34,3 +34,23 @@ Same command is used by [`deploy_ml_workloads.yml`](../../infra/ansible/playbook
 ## Legacy flat YAML
 
 The previous single-tier `classifier-pytorch-deployment.yaml` / `generator-deployment.yaml` files were folded into `base/` + overlays. Update any external docs that referenced the old Service names (`tone-generator` without suffix) to `tone-generator-prod` for production.
+
+### Immutable deployment selector (kubectl apply errors)
+
+Older `classifier-onnx` / `classifier-quantized` objects may have a different `spec.selector` than this bundle. Recreate them (brief downtime for those two):
+
+```bash
+kubectl delete deployment classifier-onnx classifier-quantized -n ml-serving
+kubectl apply -k /opt/mlops_project/k8s/inference/
+```
+
+### Stale files under `/opt/mlops_project/k8s/inference/*.yaml`
+
+Ansible `copy` does not remove extra files. Flat-era `*-deployment.yaml` (often with old `ghcr.io/.../tone-classifier` images) can remain beside the kustomize tree. Re-run **`deploy_platform.yml`** from a laptop checkout of this repo (it now deletes those obsolete names on the VM), or remove them manually, then `kubectl apply -k` again.
+
+Delete superseded **flat** workloads if they still exist (names vary):
+
+```bash
+kubectl get deploy,svc -n ml-serving
+kubectl delete deployment classifier-pytorch tone-generator -n ml-serving --ignore-not-found
+```

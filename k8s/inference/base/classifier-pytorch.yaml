@@ -28,7 +28,8 @@ spec:
       containers:
         - name: classifier-pytorch
           image: ghcr.io/allusudharshanrao/mlops-serving-classifier:latest
-          imagePullPolicy: IfNotPresent
+          # Always: after CI pushes a new :latest (e.g. torch added), nodes must not reuse an old cached tag.
+          imagePullPolicy: Always
           ports:
             - containerPort: 8001
               name: http

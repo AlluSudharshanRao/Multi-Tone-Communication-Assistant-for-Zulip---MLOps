@@ -34,6 +34,24 @@
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
 
+    # copy does not delete stale files on the VM; old flat inference YAML (wrong images)
+    # would otherwise linger next to k8s/inference/base|overlays|backends/.
+    - name: Remove obsolete flat inference manifests from VM (superseded by kustomize tree)
+      ansible.builtin.file:
+        path: "{{ repo_root }}/k8s/inference/{{ item }}"
+        state: absent
+      loop:
+        - classifier-pytorch-deployment.yaml
+        - classifier-pytorch-service.yaml
+        - classifier-onnx-deployment.yaml
+        - classifier-onnx-service.yaml
+        - classifier-quantized-deployment.yaml
+        - classifier-quantized-service.yaml
+        - generator-deployment.yaml
+        - generator-service.yaml
+        - tone-generator-deployment.yaml
+        - tone-generator-service.yaml
+
     - name: Sealed-secrets demo script executable for ansible_user
       ansible.builtin.file:
         path: "{{ repo_root }}/k8s/addons/sealed-secrets/demo/generate-sealed-demo.sh"

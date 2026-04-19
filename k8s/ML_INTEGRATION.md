@@ -25,7 +25,8 @@ Images are pushed as:
 Manifests in this repo default to **`ghcr.io/allusudharshanrao/mlops-...`**. If your GitHub user or org differs, replace that segment (case-insensitive registry owner → **lowercase**) in:
 
 - `k8s/data/*.yaml`
-- `k8s/inference/*.yaml`
+- `k8s/inference/base/*.yaml`, `k8s/inference/backends/*.yaml`, and overlay patches under `k8s/inference/overlays/**/patches/`
+- `k8s/integration/zulip-bridge-deployment.yaml`
 - `k8s/training/*.yaml`
 
 or change the workflow output to match your fork’s owner after the first successful CI run.
@@ -70,6 +71,34 @@ kubectl get jobs,pods -n ml-training
 In `ml-serving`, expect **Running** pods for `classifier-pytorch-{staging,canary,prod}`, `tone-generator-{staging,canary,prod}`, and optionally `classifier-onnx`, `classifier-quantized`.
 
 `ImagePullBackOff` → image name/registry mismatch or private package without pull secret. `CrashLoopBackOff` → app/config (logs), not Dockerfile layout.
+
+### Troubleshooting: wrong image on the cluster
+
+If `kubectl describe pod -n ml-serving …` shows an image such as **`tone-classifier`** or **`ghcr.io/<someone-else>/…`** (for example a fork you no longer use), the YAML on the VM is **stale**. This repo’s inference workloads use **`ghcr.io/<owner>/mlops-serving-classifier`** and **`mlops-serving-generator`**, not `tone-classifier`. Refresh **`k8s/`** on the VM (re-run **`deploy_platform.yml`** from a checkout of this repo, or rsync/git pull), then re-apply inference. On the VM you can confirm with:
+
+```bash
+grep -r "image:" /opt/mlops_project/k8s/inference --include="*.yaml"
+```
+
+You should see `mlops-serving-classifier` / `mlops-serving-generator` (and your intended GHCR owner). **`403 Forbidden`** from GHCR usually means the package is **private** and the cluster has no `imagePullSecrets`, or the image name does not exist for anonymous pulls — make the package **public** or add a pull Secret (see above).
+
+Flat-era `*-deployment.yaml` files under `k8s/inference/` are removed on the VM when you run an up-to-date **`deploy_platform.yml`** (they are not in this repo; Ansible `copy` alone used to leave them behind). If `kubectl apply -k …/inference/` fails with **`spec.selector: field is immutable`**, see [`inference/README.md`](inference/README.md#immutable-deployment-selector-kubectl-apply-errors).
+
+### Troubleshooting: Zulip bridge and flat vs tiered generator
+
+The default Deployment sets **`GENERATOR_URL`** to **`http://tone-generator-prod:8010`**, which matches **tiered** inference (Service `tone-generator-prod`). If you still run a **flat** stack where the Service is named **`tone-generator`** only, point the bridge at that Service without changing files in git:
+
+```bash
+kubectl set env deployment/zulip-bridge -n ml-serving \
+  GENERATOR_URL=http://tone-generator.ml-serving.svc.cluster.local:8010
+```
+
+After you move to tiered inference, set it back to prod:
+
+```bash
+kubectl set env deployment/zulip-bridge -n ml-serving \
+  GENERATOR_URL=http://tone-generator-prod.ml-serving.svc.cluster.local:8010
+```
 
 ## 7. Training Jobs
 

@@ -5,8 +5,6 @@ pydantic==2.7.1
 numpy==1.26.4
 prometheus-client==0.20.0
 
-# Required only when DUMMY_MODE=false (real model inference)
-# Uncomment if you set DUMMY_MODE=false:
-# transformers==4.40.0
-# torch==2.2.2
+# DUMMY_MODE=false needs torch + transformers — installed in Dockerfile (CPU wheels).
+# onnxruntime: optional for SERVING_BACKEND=onnx (see model_onnx.py)
 # onnxruntime==1.18.0

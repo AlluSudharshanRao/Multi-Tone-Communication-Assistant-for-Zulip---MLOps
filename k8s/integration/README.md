@@ -2,7 +2,9 @@
 
 | Manifest | Purpose |
 |----------|---------|
-| [`zulip-bridge-deployment.yaml`](zulip-bridge-deployment.yaml) | `zulip-bridge` Deployment + Service — Zulip webhook → `tone-generator-prod` |
+| [`zulip-bridge-deployment.yaml`](zulip-bridge-deployment.yaml) | `zulip-bridge` Deployment + Service — Zulip webhook → **`tone-generator-prod`** (tiered inference) |
+
+If your cluster still uses a **flat** generator Service named **`tone-generator`**, fix **`GENERATOR_URL`** with `kubectl set env` (see [Troubleshooting in `ML_INTEGRATION.md`](../ML_INTEGRATION.md#troubleshooting-zulip-bridge-and-flat-vs-tiered-generator)).
 
 Apply with the rest of ML workloads:
 

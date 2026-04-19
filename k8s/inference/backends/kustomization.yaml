@@ -7,7 +7,9 @@ labels:
   - pairs:
       app.kubernetes.io/part-of: tone-assistant
       app.kubernetes.io/component: inference-backend
-    includeSelectors: true
+    # Do not inject these into spec.selector — selector is immutable; upgrades from
+    # older classifier-onnx / classifier-quantized Deployments would fail to apply.
+    includeSelectors: false
 resources:
   - classifier-onnx.yaml
   - classifier-quantized.yaml
