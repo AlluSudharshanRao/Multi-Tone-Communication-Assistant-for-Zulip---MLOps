@@ -1,7 +1,8 @@
 diff --git a/web/src/compose_setup.js b/web/src/compose_setup.js
 --- a/web/src/compose_setup.js
 +++ b/web/src/compose_setup.js
-@@ -34,9 +34,10 @@
+@@ -33,9 +33,10 @@ import * as stream_data from "./stream_data.ts";
+ import * as stream_settings_components from "./stream_settings_components.ts";
  import * as sub_store from "./sub_store.ts";
  import * as subscriber_api from "./subscriber_api.ts";
  import {get_timestamp_for_flatpickr} from "./timerender.ts";
