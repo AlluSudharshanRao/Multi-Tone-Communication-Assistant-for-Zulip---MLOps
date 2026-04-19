@@ -18,10 +18,8 @@ spec:
     metadata:
       labels:
         app: mlflow
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "5000"
-        prometheus.io/path: "/metrics"
+      # MLflow UI does not expose Prometheus /metrics on :5000 — do not annotate for pod scrape
+      # (Prometheus would 404). Use mlflow-export or a sidecar if you need MLflow metrics later.
     spec:
       containers:
         - name: mlflow

@@ -2,7 +2,7 @@
 
 PVC uses **`storageClassName: local-path`** (k3s default). On another cluster, edit `pvc.yaml` to your provisioner. See repo root [`ARCHITECTURE.md`](../../../ARCHITECTURE.md).
 
-The Deployment sets **Prometheus** scrape annotations (`prometheus.io/*`) for the optional stack in [`k8s/platform/observability/`](../observability/README.md); if metrics are unavailable at `/metrics`, targets may show as down until you change the path or disable scraping.
+The MLflow UI server does **not** expose Prometheus `/metrics`; the Deployment does **not** set `prometheus.io/scrape` (avoids red targets in Prometheus). For MLflow metrics later, use something like **mlflow-export** or a dedicated sidecar and then add annotations or a static scrape job.
 
 Apply after namespaces exist:
 

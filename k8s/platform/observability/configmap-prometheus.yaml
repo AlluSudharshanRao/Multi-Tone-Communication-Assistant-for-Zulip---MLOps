@@ -1,4 +1,4 @@
-# Scrape self + any pod with prometheus.io/scrape=true (see MLflow deployment annotations).
+# Scrape self + any pod with prometheus.io/scrape=true (e.g. inference pods in ml-serving).
 ---
 apiVersion: v1
 kind: ConfigMap
