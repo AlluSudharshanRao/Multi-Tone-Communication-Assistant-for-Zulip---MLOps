@@ -9,7 +9,16 @@ resources:
   - pvc-prometheus.yaml
   - deployment-prometheus.yaml
   - configmap-grafana-datasources.yaml
+  - configmap-grafana-dashboard-provider.yaml
   - pvc-grafana.yaml
   - deployment-grafana.yaml
   - ingress-grafana.yaml
   - ingress-prometheus.yaml
+configMapGenerator:
+  - name: grafana-dashboard-ml-serving
+    options:
+      labels:
+        app: grafana
+      disableNameSuffixHash: true
+    files:
+      - dashboards/ml-serving-tone.json

@@ -1,0 +1,16 @@
+# Production: real inference path — DUMMY_MODE off when models are available.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ml-serving
+nameSuffix: -prod
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: tone-assistant
+      app.kubernetes.io/component: inference
+      tier: production
+    includeSelectors: true
+resources:
+  - ../../base
+patches:
+  - path: patches/classifier.yaml
+  - path: patches/generator.yaml

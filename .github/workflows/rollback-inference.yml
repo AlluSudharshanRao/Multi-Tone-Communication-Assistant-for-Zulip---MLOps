@@ -1,0 +1,58 @@
+# Roll back the previous ReplicaSet for tiered classifier / generator (no SSH).
+# Requires repo secret KUBE_CONFIG_B64 (same as promote-inference.yml).
+name: Rollback inference deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      tier_suffix:
+        type: choice
+        required: true
+        default: prod
+        options:
+          - staging
+          - canary
+          - prod
+      rollback_classifier:
+        type: boolean
+        default: true
+      rollback_generator:
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: azure/setup-kubectl@v4
+
+      - name: Write kubeconfig
+        env:
+          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KUBE_CONFIG_B64:-}" ]; then
+            echo "Missing repository secret KUBE_CONFIG_B64."
+            exit 1
+          fi
+          echo "$KUBE_CONFIG_B64" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+          chmod 600 "$RUNNER_TEMP/kubeconfig"
+
+      - name: kubectl rollout undo
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+        run: |
+          set -euo pipefail
+          NS=ml-serving
+          TIER="${{ inputs.tier_suffix }}"
+          if [ "${{ inputs.rollback_classifier }}" = "true" ]; then
+            kubectl rollout undo "deployment/classifier-pytorch-${TIER}" -n "$NS"
+            kubectl rollout status "deployment/classifier-pytorch-${TIER}" -n "$NS" --timeout=600s
+          fi
+          if [ "${{ inputs.rollback_generator }}" = "true" ]; then
+            kubectl rollout undo "deployment/tone-generator-${TIER}" -n "$NS"
+            kubectl rollout status "deployment/tone-generator-${TIER}" -n "$NS" --timeout=600s
+          fi

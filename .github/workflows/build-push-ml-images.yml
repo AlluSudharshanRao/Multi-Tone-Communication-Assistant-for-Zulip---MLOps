@@ -1,6 +1,6 @@
 # Build and push ML integration images to GHCR (linux/amd64 for Chameleon KVM).
 # Uses existing Dockerfiles under data/, serving/, training_proj15-main/training/ — no edits to those trees.
-# Image URIs: ghcr.io/<lowercase_github_owner>/mlops-<component> — must match k8s/{data,inference,training} manifests.
+# Image URIs: ghcr.io/<lowercase_github_owner>/mlops-<component> — must match k8s/{data,inference,training,integration} manifests.
 name: Build and push ML images
 
 on:
@@ -11,6 +11,7 @@ on:
       - "data/**"
       - "serving/**"
       - "training_proj15-main/training/**"
+      - "integrations/zulip-bridge/**"
       - ".github/workflows/build-push-ml-images.yml"
 
 permissions:
@@ -48,6 +49,9 @@ jobs:
           - image: mlops-training-generator
             context: ./training_proj15-main/training
             file: ./training_proj15-main/training/Dockerfile.llm
+          - image: mlops-zulip-bridge
+            context: ./integrations/zulip-bridge
+            file: ./integrations/zulip-bridge/Dockerfile
     steps:
       - uses: actions/checkout@v4
 

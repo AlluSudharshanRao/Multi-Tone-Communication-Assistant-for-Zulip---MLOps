@@ -43,6 +43,11 @@ spec:
               mountPath: /var/lib/grafana
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards/mlops
+            - name: dashboard-ml-serving
+              mountPath: /etc/grafana/provisioning/dashboards/mlops/ml-serving-tone.json
+              subPath: ml-serving-tone.json
           resources:
             requests:
               cpu: "100m"
@@ -57,6 +62,12 @@ spec:
         - name: datasources
           configMap:
             name: grafana-datasources
+        - name: dashboard-provider
+          configMap:
+            name: grafana-dashboard-provider
+        - name: dashboard-ml-serving
+          configMap:
+            name: grafana-dashboard-ml-serving
 ---
 apiVersion: v1
 kind: Service

@@ -1,5 +1,13 @@
 # ML workloads integration (DevOps path)
 
+**Shared platform:** Use the team’s single MLflow and MinIO; playbook order and cleanup checklist: [`../infra/ONE_PLATFORM_AND_CLEANUP.md`](../infra/ONE_PLATFORM_AND_CLEANUP.md).
+
+**Tiered inference:** `kubectl apply -k k8s/inference/` deploys **staging / canary / prod** stacks (Services `tone-generator-staging`, `tone-generator-canary`, `tone-generator-prod`, and matching `classifier-pytorch-*`) plus shared ONNX/quantized backends. Zulip or bots should call **`tone-generator-prod`** for live traffic unless testing another tier. Layout: [`inference/README.md`](inference/README.md).
+
+**Zulip bridge:** `kubectl apply -k k8s/integration/` deploys **`zulip-bridge`** (webhook → generator). Zulip setup and Ingress: [`integrations/README.md`](../integrations/README.md).
+
+**CI (no SSH):** image promotion and rollout undo — [`.github/workflows/promote-inference.yml`](../.github/workflows/promote-inference.yml) and [`.github/workflows/rollback-inference.yml`](../.github/workflows/rollback-inference.yml) (require repo secret `KUBE_CONFIG_B64`).
+
 Application code under `data/`, `serving/`, and `training_proj15-main/` is **not** modified here. Integration is:
 
 1. **Build & push images** (GitHub Actions) from those Dockerfiles to **GHCR**.
@@ -49,15 +57,17 @@ To run the same steps manually on the VM, mirror the tasks in `infra/ansible/pla
 ## 5. MinIO buckets
 
 - **Data stack** manifests use bucket **`zulip-rewriter`** (see env in `k8s/data/*.yaml`). Create it in the MinIO console (or `mc`) if empty.
-- **Training Jobs** reference bucket **`proj15`** in the Job YAML — align with your real bucket policy or change **only** the `k8s/training/*.yaml` env (DevOps manifests), not training scripts.
+- **Training Jobs** use the same bucket **`zulip-rewriter`** in `k8s/training/*.yaml` so ingest + training share one object store. Use distinct prefixes inside the bucket for raw vs model artifacts (e.g. `datasets/`, `classifier/`); adjust training code if it still expects a `proj15/` prefix.
 
 ## 6. Verify
 
 ```bash
 kubectl get pods -n ml-data
-kubectl get pods -n ml-serving
+kubectl get pods,svc -n ml-serving
 kubectl get jobs,pods -n ml-training
 ```
+
+In `ml-serving`, expect **Running** pods for `classifier-pytorch-{staging,canary,prod}`, `tone-generator-{staging,canary,prod}`, and optionally `classifier-onnx`, `classifier-quantized`.
 
 `ImagePullBackOff` → image name/registry mismatch or private package without pull secret. `CrashLoopBackOff` → app/config (logs), not Dockerfile layout.
 

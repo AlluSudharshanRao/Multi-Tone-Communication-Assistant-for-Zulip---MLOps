@@ -1,10 +1,11 @@
 ---
-# Apply data / inference / training Kustomize bundles on the Chameleon VM.
+# Apply data / inference / integration (Zulip bridge) / training Kustomize bundles on the Chameleon VM.
 # Prerequisites: deploy_platform (namespaces, MinIO in ml-platform), k8s/ synced to /opt/mlops_project.
 # Copies minio-root into ml-data so data workloads can use secretKeyRef.
 # Does not modify application source under data/, serving/, or training_proj15-main/.
 #
 # Run from WSL (venv): ansible-playbook -i inventory.ini playbooks/deploy_ml_workloads.yml
+# After deploy_platform.yml (shared MinIO/MLflow). Policy: ../../ONE_PLATFORM_AND_CLEANUP.md
 - name: Deploy ML data, serving, and training manifests
   hosts: chameleon
   become: true
@@ -38,6 +39,11 @@
       ansible.builtin.command: >
         kubectl --kubeconfig {{ kubeconfig_path }}
         apply -k {{ repo_root }}/k8s/inference/
+
+    - name: Apply Zulip bridge (ml-serving)
+      ansible.builtin.command: >
+        kubectl --kubeconfig {{ kubeconfig_path }}
+        apply -k {{ repo_root }}/k8s/integration/
 
     - name: Apply training Job manifests (ml-training)
       ansible.builtin.command: >

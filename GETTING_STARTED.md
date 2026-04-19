@@ -325,6 +325,7 @@ If **`/new/`** org creation is enabled, ensure `SETTING_OPEN_REALM_CREATION` is 
 
 ## 14. Operational notes
 
+- **One platform policy:** Use a single MLflow, MinIO, and Prometheus/Grafana stack; know who runs `deploy_platform.yml` vs `deploy_ml_workloads.yml`; clean up duplicate OpenStack and Kubernetes resources before submission. Details: [`infra/ONE_PLATFORM_AND_CLEANUP.md`](infra/ONE_PLATFORM_AND_CLEANUP.md).
 - **Traefik** is the default k3s ingress controller; `ingressClassName: traefik` is set on MLflow, MinIO, Grafana, Prometheus (if exposed), and Zulip Ingresses.
 - **Prometheus/Grafana:** Prometheus scrapes pods annotated with `prometheus.io/scrape: "true"` (MLflow includes these). Prometheus has no public Ingress by default; use Grafana’s Explore or add dashboards.
 - **Storage:** examples target k3s **`local-path`**; change `storageClassName` / Helm values if your cluster uses another provisioner.

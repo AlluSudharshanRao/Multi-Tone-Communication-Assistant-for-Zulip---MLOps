@@ -1,0 +1,14 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: classifier-pytorch
+spec:
+  template:
+    spec:
+      containers:
+        - name: classifier-pytorch
+          env:
+            - name: DUMMY_MODE
+              value: "false"
+            - name: DEPLOYMENT_TIER
+              value: "canary"
