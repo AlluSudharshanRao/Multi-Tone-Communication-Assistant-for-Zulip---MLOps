@@ -96,3 +96,23 @@ postgresql:
 #   repository: ghcr.io/your-org/zulip-server
 #   tag: "11.6-1-yourbuild"
 # See integrations/README.md (Zulip Web: compose-area tone UI) and k8s/zulip/README.md.
+
+# --- Smokescreen egress (required for compose "Tone suggestions") ---
+# Django outbound HTTP goes through Smokescreen. In-cluster URLs (e.g. zulip-bridge) resolve to
+# private IPs (pod net + often a separate Service CIDR). Without --allow-address, Smokescreen
+# returns HTTP 407; the UI shows: "Tone service returned an error (407)." while curl from the
+# pod (bypassing Smokescreen) still returns 200. This post-setup hook patches smokescreen once.
+# If your cluster uses different CIDRs, run from a pod: getent hosts zulip-bridge.ml-serving.svc.cluster.local
+# and allowlist those ranges or IPs per https://github.com/zulip/zulip/issues/17555
+postSetup:
+  scripts:
+    __mlops_smokescreen_allow_k8s_internal.sh: |
+      #!/bin/bash
+      set -euo pipefail
+      CONF=/etc/supervisor/conf.d/zulip/smokescreen.conf
+      test -f "$CONF" || exit 0
+      if grep -q "allow-address 10.42.0.0/16" "$CONF"; then
+        exit 0
+      fi
+      sed -ri '/smokescreen/s|(command=.*)|\1 --allow-address 10.42.0.0/16 --allow-address 10.43.0.0/16|' "$CONF"
+      supervisorctl restart smokescreen 2>/dev/null || true
