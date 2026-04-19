@@ -53,7 +53,7 @@ Serving recommends a **three-layer** approach (implementable without changing Zu
    After deploy, run `serving/scripts/smoke_predict_generate.sh` against `/predict` and `/generate`. Fails on non-200 or missing JSON fields (`predicted_tone`, `variants.formal`, etc.).
 
 2. **Structured inference log (operational, low-PII)**  
-   Log one JSON line per request at INFO (fields such as `message_id`, `predicted_tone`, `backend`, `latency_ms`, `variant_char_lengths` — **not** raw user text in production logs unless policy allows). Collect with cluster log stack (platform).
+   Set **`SERVING_AUDIT_LOG=true`** on classifier and/or generator to emit **one JSON line per successful request** at INFO (`serving_audit: true`, `message_id`, tones, variant character lengths, latencies — **no raw message text** unless `SERVING_AUDIT_LOG_INCLUDE_TEXT=true`, which is for debug only). Collect with the cluster log stack (platform).
 
 3. **Distribution sanity (batch or scheduled job)**  
    Periodically sample `predicted_tone` counts from logs or a metrics exporter; alert if one class goes to ~100% for extended windows (stuck model / bad deploy).
@@ -125,7 +125,9 @@ Serving sits in the middle of the ML path:
 |------|---------|
 | `prometheus.yml` | Optional: scrape classifier + generator when using **compose** Prometheus only |
 | `alerts/serving.rules.yml` | **Reference** alert rules — ask DevOps to merge into [team Prometheus](https://prometheus.129.114.27.192.nip.io/) config; not loaded by compose by default |
-| `scripts/smoke_predict_generate.sh` | Contract smoke after deploy |
+| `INTEGRATION_FOR_ZULIP.md` | Curl examples, timeouts, URLs for bot / webhook owner |
+| `classifier/audit_log.py`, `generator/audit_log.py` | Optional `SERVING_AUDIT_LOG` JSON lines (low-PII) |
+| `scripts/smoke_predict_generate.sh` | Contract smoke after deploy (checks HTTP status) |
 | `scripts/example_promote_digest.sh` | Example non-interactive promote by digest |
 
 ---
@@ -133,3 +135,5 @@ Serving sits in the middle of the ML path:
 ## 7. Zulip “in user flow” (schedule note)
 
 Product integration (webhook/bot → classifier → generator → reply) is **cross-cutting**. Serving defines **HTTP contracts and SLOs** here; the Zulip-specific bridge is owned by the product/integration track. Before Apr 20, serving should keep **stable `/predict` and `/generate`** and publish **this doc + smoke script** so the bridge can be tested early.
+
+**Concrete handoff for bridge developers:** [INTEGRATION_FOR_ZULIP.md](./INTEGRATION_FOR_ZULIP.md).

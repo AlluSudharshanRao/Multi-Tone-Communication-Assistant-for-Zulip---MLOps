@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from starlette.responses import Response
 
+from audit_log import log_generator_audit
 from model import ToneGenerator
 
 logging.basicConfig(level=logging.INFO)
@@ -127,6 +128,15 @@ async def generate(request: GenerateRequest):
         tone: ToneVariant(text=v["text"])
         for tone, v in gen_result["variants"].items()
     }
+
+    log_generator_audit(
+        message_id=request.message_id,
+        text=text,
+        classifier_result=cls_result,
+        variants=gen_result["variants"],
+        offensive_content_flagged=gen_result["offensive_content_flagged"],
+        total_latency_ms=round(total_ms, 2),
+    )
 
     return GenerateResponse(
         message_id=request.message_id,

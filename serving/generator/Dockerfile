@@ -42,7 +42,7 @@ RUN pip install --no-cache-dir \
       pip install --no-cache-dir -r requirements-llm.txt; \
     fi
 
-COPY app.py model.py ./
+COPY app.py audit_log.py model.py ./
 
 # Non-root user
 RUN useradd -m -u 1000 appuser

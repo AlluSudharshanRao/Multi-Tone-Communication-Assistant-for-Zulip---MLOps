@@ -10,6 +10,8 @@ docker compose up -d classifier-pytorch generator
 
 Benchmarks and smoke tests live under `evaluate/` and `scripts/`.
 
+- **Zulip / bot handoff:** [INTEGRATION_FOR_ZULIP.md](./INTEGRATION_FOR_ZULIP.md) — URLs, timeouts, curl examples.
+
 ## Rubric / ops (serving-owned)
 
 - **Runbook:** [OBSERVABILITY_AND_RELEASE.md](./OBSERVABILITY_AND_RELEASE.md) — metrics, model-output checks, feedback handoff, promotion/rollback triggers, E2E boundary.
