@@ -89,13 +89,14 @@ postgresql:
 # and set e.g. cert-manager.io/cluster-issuer on the Ingress; Let's Encrypt HTTP-01 works
 # if port 80 is reachable on this host for the nip.io name.
 
-# --- Optional: custom Zulip server image (fork of github.com/zulip/zulip for compose UI / APIs) ---
-# Chart keys are at the ROOT of values (same level as `zulip:`, `ingress:`), per docker-zulip helm/zulip/values.yaml.
-# Uncomment and set after you build and push your own zulip-server image:
-# image:
-#   repository: ghcr.io/your-org/zulip-server
-#   tag: "11.6-1-yourbuild"
-# See integrations/README.md (Zulip Web: compose-area tone UI) and k8s/zulip/README.md.
+# --- Custom Zulip server image (fork with compose Tone suggestions + /json/messages/tone_suggestions) ---
+# Root-level keys per docker-zulip helm/zulip/values.yaml. Keeps Helm/Ansible from silently using
+# upstream ghcr.io/zulip/zulip-server when long --set lines break in the shell.
+# Rebuild/push a new tag after server changes, bump tag here, redeploy.
+image:
+  repository: ghcr.io/allusudharshanrao/zulip-server
+  tag: "mlops-zulip-11.6-edfbbb5"
+  pullPolicy: Always
 
 # --- Smokescreen egress (required for compose "Tone suggestions") ---
 # Django outbound HTTP goes through Smokescreen. In-cluster URLs (e.g. zulip-bridge) resolve to
