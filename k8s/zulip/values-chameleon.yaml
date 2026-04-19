@@ -86,3 +86,11 @@ postgresql:
 # Trusted public certs (optional, more moving parts): install cert-manager + ClusterIssuer
 # and set e.g. cert-manager.io/cluster-issuer on the Ingress; Let's Encrypt HTTP-01 works
 # if port 80 is reachable on this host for the nip.io name.
+
+# --- Optional: custom Zulip server image (fork of github.com/zulip/zulip for compose UI / APIs) ---
+# Chart keys are at the ROOT of values (same level as `zulip:`, `ingress:`), per docker-zulip helm/zulip/values.yaml.
+# Uncomment and set after you build and push your own zulip-server image:
+# image:
+#   repository: ghcr.io/your-org/zulip-server
+#   tag: "11.6-1-yourbuild"
+# See integrations/README.md (Zulip Web: compose-area tone UI) and k8s/zulip/README.md.

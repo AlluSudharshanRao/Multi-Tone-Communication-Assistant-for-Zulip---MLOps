@@ -38,3 +38,19 @@ Small FastAPI service that accepts **Zulip outgoing webhook** POSTs and forwards
 - [`rollback-inference.yml`](../.github/workflows/rollback-inference.yml) — `kubectl rollout undo` for the same Deployments.
 
 Both require repository secret **`KUBE_CONFIG_B64`**: `base64 -w0 ~/.kube/config` (Linux) or equivalent for your kubeconfig that can update `ml-serving`.
+
+---
+
+## Zulip Web: compose-area tone UI (product / fork integration)
+
+**Goal:** suggestions **next to the compose box** in Zulip Web require changes **inside** [zulip/zulip](https://github.com/zulip/zulip) (TypeScript under `web/`, Django routes, etc.). This MLOps repo keeps **serving + bridge + Helm**; the fork lives in a **separate repository** (AGPL-3.0 — understand obligations before you distribute a modified server).
+
+**Recommended shape**
+
+1. **Fork** `zulip/zulip` at the same **server version** you run (e.g. chart tag `11.6-1` → align with upstream **11.6** sources).
+2. **Web client:** add a small panel in compose (between textarea and toolbar) that calls a **same-origin** JSON endpoint on the Zulip server.
+3. **Django:** implement that endpoint as a **server-side proxy** to `http://zulip-bridge.ml-serving.svc.cluster.local:8090/generate` (or `tone-generator-*`) so the browser never needs cluster DNS or long-lived secrets; add timeouts, auth, tests.
+4. **Ship:** build a **custom `zulip-server` image** from your fork, push to GHCR (or your registry), then set Helm **`image.repository`** / **`image.tag`** (see [`k8s/zulip/README.md`](../k8s/zulip/README.md) and commented block in [`values-chameleon.yaml`](../k8s/zulip/values-chameleon.yaml)).
+5. **Upgrade cluster:** `helm upgrade --install … -f values-chameleon.yaml -f values-secret.yaml` (always pass **both** `-f` files so PVC / ingress settings are not dropped).
+
+**Branching in *this* repo:** use **`DevOps`** for integration docs and Helm tweaks; merge to **`main`** when stable (same pattern as other MLOps work).
