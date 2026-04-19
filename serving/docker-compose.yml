@@ -155,6 +155,7 @@ services:
     container_name: prometheus
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts/serving.rules.yml:/etc/prometheus/rules/serving.rules.yml:ro
       - prometheus_data:/prometheus
     ports:
       - "9090:9090"
