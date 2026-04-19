@@ -19,6 +19,8 @@ from pydantic import BaseModel, Field
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from starlette.responses import Response
 
+from audit_log import log_classifier_audit
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -111,6 +113,14 @@ def predict(request: ClassifierRequest):
         wall_ms = (time.perf_counter() - t_start) * 1000
         REQUEST_COUNT.labels(status="ok").inc()
         LATENCY_HIST.observe(wall_ms / 1000)
+        log_classifier_audit(
+            message_id=request.message_id,
+            text=text,
+            predicted_tone=result["predicted_tone"],
+            confidence=result["confidence"],
+            backend=BACKEND,
+            inference_latency_ms=float(result["latency_ms"]),
+        )
         return ClassifierResponse(
             message_id=request.message_id,
             predicted_tone=result["predicted_tone"],

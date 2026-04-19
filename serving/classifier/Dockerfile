@@ -28,7 +28,7 @@ RUN pip install --no-cache-dir \
     numpy==1.26.4 \
     prometheus-client==0.20.0
 
-COPY app.py model.py model_onnx.py model_quantized.py ./
+COPY app.py audit_log.py model.py model_onnx.py model_quantized.py ./
 
 # Non-root user for security
 RUN useradd -m -u 1000 appuser
