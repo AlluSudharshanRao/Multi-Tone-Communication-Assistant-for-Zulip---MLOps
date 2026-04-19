@@ -2,9 +2,6 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
-rule_files:
-  - /etc/prometheus/rules/serving.rules.yml
-
 scrape_configs:
   - job_name: "classifier_pytorch"
     static_configs:

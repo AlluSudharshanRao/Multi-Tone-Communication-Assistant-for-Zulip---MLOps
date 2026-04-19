@@ -1,6 +1,15 @@
 # Serving — observability, model-output checks, feedback, promotion/rollback
 
-This document is **serving-owned**: it defines what we expose, how we measure it, and how we recommend promoting or rolling back **tone classifier** and **tone generator** releases. Platform work (cluster Prometheus rules, Alertmanager routes, staging/canary namespaces) stays with DevOps; serving supplies **metrics semantics**, **reference alert rules**, and **contract/smoke scripts** under `serving/`.
+This document is **serving-owned**: it defines what we expose, how we measure it, and how we recommend promoting or rolling back **tone classifier** and **tone generator** releases. **Dashboards and cluster Prometheus are owned by DevOps** — serving does not maintain a parallel Grafana or duplicate dashboards for the same environment.
+
+### Team observability (canonical — use these only)
+
+| Tool        | URL |
+|------------|-----|
+| **Grafana**  | [https://grafana.129.114.27.192.nip.io/](https://grafana.129.114.27.192.nip.io/) |
+| **Prometheus** | [https://prometheus.129.114.27.192.nip.io/](https://prometheus.129.114.27.192.nip.io/) |
+
+Use the existing dashboards there. If classifier/generator panels are missing, ask DevOps to add panels to **this** stack (same Prometheus datasource), rather than importing a second dashboard elsewhere.
 
 ---
 
@@ -28,11 +37,11 @@ sum(rate(classifier_requests_total{status="error"}[5m]))
 / clamp_min(sum(rate(classifier_requests_total[5m])), 0.001)
 ```
 
-**CPU/RAM/restarts:** come from **kubelet/cAdvisor/kube-state-metrics** on the cluster (not emitted by our Python apps). Serving recommends dashboards that **join** pod metrics with our histograms by pod or deployment name. Wiring that is platform scope; the queries above are serving’s **SLO inputs**.
+**CPU/RAM/restarts:** come from **kubelet/cAdvisor/kube-state-metrics** on the cluster (not emitted by our Python apps). Those belong in **team Grafana** next to app metrics. The PromQL snippets above are serving’s **SLO inputs** you can paste into Explore or ask DevOps to add to existing dashboards.
 
-### Local stack (serving only)
+### Optional: local Prometheus (not canonical)
 
-`docker compose --profile monitoring up` runs Prometheus with scrape configs in `serving/prometheus.yml` and optional rules in `serving/alerts/serving.rules.yml`.
+`docker compose --profile monitoring up` can still run the small Prometheus in `serving/docker-compose.yml` for **offline demos** on a laptop or VM without cluster access. It is **not** a second source of truth when the cluster stack above is available.
 
 ---
 
@@ -104,9 +113,9 @@ Serving sits in the middle of the ML path:
        → [User feedback] → future retrain (training/data)
 ```
 
-**Serving responsibilities:** image build, runtime env, health, `/metrics`, smoke contracts, SLO-oriented alerts (as code in `serving/alerts/`), and this runbook.
+**Serving responsibilities:** image build, runtime env, health, `/metrics`, smoke contracts, **SLO-oriented alert expressions** (as reference in `serving/alerts/` for DevOps to merge into cluster Prometheus if agreed), and this runbook.
 
-**Not serving:** Terraform, cluster install, MinIO bucket creation, training jobs, Zulip Helm values (other tracks).
+**Not serving:** Terraform, cluster install, MinIO bucket creation, training jobs, Zulip Helm values, **Grafana dashboard JSON in a separate tree** (use team Grafana only).
 
 ---
 
@@ -114,9 +123,8 @@ Serving sits in the middle of the ML path:
 
 | Path | Purpose |
 |------|---------|
-| `prometheus.yml` | Scrape classifier + generator (compose) |
-| `alerts/serving.rules.yml` | Reference Prometheus alerts (compose mounts; cluster can copy) |
-| `grafana/dashboards/serving-overview.json` | Import into Grafana for classifier/generator panels |
+| `prometheus.yml` | Optional: scrape classifier + generator when using **compose** Prometheus only |
+| `alerts/serving.rules.yml` | **Reference** alert rules — ask DevOps to merge into [team Prometheus](https://prometheus.129.114.27.192.nip.io/) config; not loaded by compose by default |
 | `scripts/smoke_predict_generate.sh` | Contract smoke after deploy |
 | `scripts/example_promote_digest.sh` | Example non-interactive promote by digest |
 

@@ -1,6 +1,7 @@
 # Reference Prometheus alerting rules for tone classifier + generator (serving metrics).
-# Used by: docker compose --profile monitoring (see serving/prometheus.yml + docker-compose volume).
-# Cluster: DevOps can copy this file into platform Prometheus rule_files (serving does not edit k8s/platform here).
+# Canonical UI: https://prometheus.129.114.27.192.nip.io/ — ask DevOps to merge these rules into
+# the team's Prometheus config (do not run a separate alerting stack for the same cluster).
+# Optional local compose Prometheus may scrape serving/ without these rules loaded.
 
 groups:
   - name: serving_tone_services
