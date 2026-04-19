@@ -32,6 +32,12 @@ git apply /path/to/integrations/zulip-server-mlops/patches/0001-zproject-urls-11
 git apply /path/to/integrations/zulip-server-mlops/patches/0002-web-compose_setup-11.6.patch
 ```
 
+**Windows:** patch files must use **LF** newlines (Zulip sources are LF). This repo sets `patches/.gitattributes` so `git pull` keeps that. If `git apply` still fails, regenerate from the MLOps repo:
+
+```bash
+python integrations/zulip-server-mlops/scripts/write_patches_lf.py
+```
+
 If `git apply` reports offset/fuzz, re-diff against your exact tree and refresh the patches (line numbers move across releases).
 
 ## 4. Configure the bridge URL (Django)
