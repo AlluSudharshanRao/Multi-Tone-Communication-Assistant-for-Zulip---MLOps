@@ -44,7 +44,7 @@ spec:
             - name: MINIO_ENDPOINT
               value: "minio.ml-platform.svc.cluster.local:9000"
             - name: MINIO_BUCKET
-              value: "proj15"
+              value: "zulip-rewriter"
             - name: MINIO_ROOT_USER
               valueFrom:
                 secretKeyRef:

@@ -2,6 +2,8 @@
 
 This directory is the **configuration-as-code** counterpart to Terraform IaC.
 
+**Team policy — one MLflow, one MinIO, one monitoring stack, playbook order, and Chameleon cleanup:** see [`../ONE_PLATFORM_AND_CLEANUP.md`](../ONE_PLATFORM_AND_CLEANUP.md).
+
 ## What this does
 
 - Installs a **single-node k3s** cluster on your Chameleon VM.
@@ -103,13 +105,13 @@ Adjust `zulip_chart_dir` if you cloned somewhere other than `~/docker-zulip`. St
 
 Alternative without a chart clone on the VM: on the VM run `helm install ... oci://ghcr.io/zulip/helm-charts/zulip -f ...` yourself; this playbook expects a local chart directory for `helm dependency update`.
 
-5) **ML workloads (data / serving / training)** — after [`.github/workflows/build-push-ml-images.yml`](../../.github/workflows/build-push-ml-images.yml) has pushed images to GHCR and `deploy_platform` has refreshed `k8s/` on the VM:
+5) **ML workloads (data / serving / training / integration)** — after [`.github/workflows/build-push-ml-images.yml`](../../.github/workflows/build-push-ml-images.yml) has pushed images to GHCR and `deploy_platform` has refreshed `k8s/` on the VM:
 
 ```bash
 ansible-playbook -i inventory.ini playbooks/deploy_ml_workloads.yml
 ```
 
-See [`k8s/ML_INTEGRATION.md`](../../k8s/ML_INTEGRATION.md) for image naming, MinIO buckets, and GHCR visibility. This does **not** edit source under `data/`, `serving/`, or `training_proj15-main/`.
+This applies `k8s/data/`, `k8s/inference/`, `k8s/integration/` (Zulip bridge), and `k8s/training/`. See [`k8s/ML_INTEGRATION.md`](../../k8s/ML_INTEGRATION.md) for image naming, MinIO buckets, and GHCR visibility. This does **not** edit source under `data/`, `serving/`, or `training_proj15-main/`.
 
 ## Troubleshooting
 

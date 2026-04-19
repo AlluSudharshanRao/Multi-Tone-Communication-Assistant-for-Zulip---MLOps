@@ -4,6 +4,7 @@
 # Creates Secret minio-root in ml-platform if missing (user minioadmin + random password).
 # Expects k3s and ~/.kube/config from k3s_install. Repo path on VM: /opt/mlops_project.
 # Run: ansible-playbook -i ../inventory.ini playbooks/deploy_platform.yml
+# Playbook order + dedupe policy: ../../ONE_PLATFORM_AND_CLEANUP.md
 - name: Deploy namespaces + platform services (MLflow, MinIO, observability)
   hosts: chameleon
   become: true

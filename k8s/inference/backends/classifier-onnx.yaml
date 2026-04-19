@@ -1,20 +1,9 @@
-# Tone Classifier — ONNX backend (faster CPU inference via ONNX Runtime).
-# Role owner: Serving (rithwik0908/mlops-serving)
-# Dockerfile: https://github.com/rithwik0908/mlops-serving/blob/main/serving/classifier/Dockerfile
-# Namespace: ml-serving
-#
-# Same image as classifier-pytorch; SERVING_BACKEND=onnx activates model_onnx.py.
-# ONNX model file must be present at ONNX_PATH (mounted from MinIO via init-container
-# or pre-baked into image).
-#
-# Port: 8001 (from Dockerfile EXPOSE 8001)
-# Apply: kubectl apply -k k8s/inference/
+# Tone Classifier — ONNX backend (shared; not tier-multiplied).
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: classifier-onnx
-  namespace: ml-serving
   labels:
     app: classifier-onnx
     role: serving
@@ -70,7 +59,6 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 20
           resources:
-            # ONNX Runtime is lighter than full PyTorch — lower memory floor.
             requests:
               cpu: "250m"
               memory: "512Mi"
@@ -80,37 +68,11 @@ spec:
       volumes:
         - name: model-cache
           emptyDir: {}
-          # TODO: replace with init-container pulling classifier.onnx from MinIO:
-          # initContainers:
-          #   - name: pull-onnx-model
-          #     image: minio/mc:latest
-          #     command:
-          #       - sh
-          #       - -c
-          #       - |
-          #         mc alias set minio http://minio.ml-platform.svc.cluster.local:9000 \
-          #           $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
-          #         mc cp minio/proj15/classifier/classifier.onnx /app/model_cache/
-          #     env:
-          #       - name: MINIO_ROOT_USER
-          #         valueFrom:
-          #           secretKeyRef:
-          #             name: minio-root
-          #             key: root-user
-          #       - name: MINIO_ROOT_PASSWORD
-          #         valueFrom:
-          #           secretKeyRef:
-          #             name: minio-root
-          #             key: root-password
-          #     volumeMounts:
-          #       - name: model-cache
-          #         mountPath: /app/model_cache
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: classifier-onnx
-  namespace: ml-serving
   labels:
     app: classifier-onnx
 spec:

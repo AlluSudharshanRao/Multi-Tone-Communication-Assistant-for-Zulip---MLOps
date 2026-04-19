@@ -1,5 +1,6 @@
 # Course / personal documentation (entire tree local only — not versioned)
 Docs/
+proj_docs/
 
 # Secrets and local env (never commit)
 .env

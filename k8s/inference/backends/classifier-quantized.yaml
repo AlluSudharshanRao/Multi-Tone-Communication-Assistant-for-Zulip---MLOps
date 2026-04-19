@@ -1,46 +1,31 @@
-# Tone Classifier — PyTorch backend (DistilBERT baseline).
-# Role owner: Serving (rithwik0908/mlops-serving)
-# Dockerfile: https://github.com/rithwik0908/mlops-serving/blob/main/serving/classifier/Dockerfile
-# Namespace: ml-serving
-#
-# One Dockerfile, three backends — differentiated by SERVING_BACKEND env var:
-#   pytorch     → this manifest (full PyTorch inference)
-#   onnx        → classifier-onnx-deployment.yaml
-#   quantized   → classifier-quantized-deployment.yaml
-#
-# Port: 8001 (from Dockerfile EXPOSE 8001)
-# Health: GET /health
-# Metrics: prometheus-client on :8001/metrics
-#
-# Apply: kubectl apply -k k8s/inference/
+# Tone Classifier — quantized backend (shared; not tier-multiplied).
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: classifier-pytorch
-  namespace: ml-serving
+  name: classifier-quantized
   labels:
-    app: classifier-pytorch
+    app: classifier-quantized
     role: serving
-    backend: pytorch
+    backend: quantized
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: classifier-pytorch
+      app: classifier-quantized
   template:
     metadata:
       labels:
-        app: classifier-pytorch
+        app: classifier-quantized
         role: serving
-        backend: pytorch
+        backend: quantized
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8001"
         prometheus.io/path: "/metrics"
     spec:
       containers:
-        - name: classifier-pytorch
+        - name: classifier-quantized
           image: ghcr.io/allusudharshanrao/mlops-serving-classifier:latest
           imagePullPolicy: IfNotPresent
           ports:
@@ -48,11 +33,12 @@ spec:
               name: http
           env:
             - name: SERVING_BACKEND
-              value: "pytorch"
+              value: "quantized"
             - name: MODEL_PATH
               value: "distilbert-base-uncased"
+            - name: ONNX_PATH
+              value: "/app/model_cache/classifier.onnx"
             - name: DUMMY_MODE
-              # Set to "false" once model weights are published to registry.
               value: "true"
             - name: MLFLOW_TRACKING_URI
               value: "http://mlflow.ml-platform.svc.cluster.local:5000"
@@ -60,34 +46,32 @@ spec:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 15
+            initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 30
+            initialDelaySeconds: 20
             periodSeconds: 20
           resources:
-            # PyTorch DistilBERT CPU inference.
             requests:
-              cpu: "500m"
-              memory: "1Gi"
+              cpu: "250m"
+              memory: "256Mi"
             limits:
-              cpu: "2"
-              memory: "2Gi"
+              cpu: "1"
+              memory: "512Mi"
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: classifier-pytorch
-  namespace: ml-serving
+  name: classifier-quantized
   labels:
-    app: classifier-pytorch
+    app: classifier-quantized
 spec:
   type: ClusterIP
   selector:
-    app: classifier-pytorch
+    app: classifier-quantized
   ports:
     - name: http
       port: 8001

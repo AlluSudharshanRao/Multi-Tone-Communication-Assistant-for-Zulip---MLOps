@@ -33,6 +33,8 @@ flowchart TB
 | Platform | Namespaces, MLflow, MinIO, Prometheus/Grafana | `infra/ansible/playbooks/deploy_platform.yml`, `k8s/` |
 | Application | Zulip Helm (docker-zulip chart) | `infra/ansible/playbooks/deploy_zulip.yml`, `k8s/zulip/*.yaml` |
 
+**Single shared platform (no duplicate MLflow/MinIO/monitoring):** playbook order, ownership, and Chameleon cleanup checklist are in [`infra/ONE_PLATFORM_AND_CLEANUP.md`](infra/ONE_PLATFORM_AND_CLEANUP.md).
+
 **Public HTTPS** terminates at **Traefik** (k3s default). TLS Secret `chameleon-nip-tls` is created on the cluster (not committed). **Zulip**, **MLflow**, **MinIO** (API + console), **Grafana**, and optionally **Prometheus** use separate **nip.io** subdomains on the same floating IP.
 
 **Reference only:** `zulip/` is a **git submodule** pointing at upstream [zulip/zulip](https://github.com/zulip/zulip) (source study). Runtime images come from the **docker-zulip** Helm chart, not a local build from that submodule.

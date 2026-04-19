@@ -1,0 +1,7 @@
+# Base: primary PyTorch classifier + tone generator (tier-agnostic names).
+# Tier-specific names, labels, and env come from overlays/staging|canary|prod.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - classifier-pytorch.yaml
+  - generator.yaml

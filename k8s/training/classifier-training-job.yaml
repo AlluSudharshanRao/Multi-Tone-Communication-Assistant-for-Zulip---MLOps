@@ -6,7 +6,7 @@
 # This is a Kubernetes Job (run-to-completion), not a long-running Deployment.
 # Triggered manually or by CI/CD on new data or drift detection.
 # Logs metrics and model artefacts to MLflow (ml-platform namespace).
-# Saves model weights to MinIO bucket proj15/classifier/.
+# Saves model weights under MinIO bucket zulip-rewriter (aligned with data stack; prefix e.g. classifier/).
 #
 # Apply: kubectl apply -f k8s/training/classifier-training-job.yaml
 # Monitor: kubectl logs -n ml-training -l job-name=classifier-training -f
@@ -46,7 +46,7 @@ spec:
             - name: MINIO_ENDPOINT
               value: "minio.ml-platform.svc.cluster.local:9000"
             - name: MINIO_BUCKET
-              value: "proj15"
+              value: "zulip-rewriter"
             - name: MINIO_ROOT_USER
               valueFrom:
                 secretKeyRef:
@@ -107,7 +107,7 @@ spec:
           #       - -c
           #       - |
           #         mc alias set minio http://$MINIO_ENDPOINT $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
-          #         mc cp --recursive minio/proj15/datasets/ /data/
+          #         mc cp --recursive minio/zulip-rewriter/datasets/ /data/
           #     env:
           #       - name: MINIO_ENDPOINT
           #         value: "minio.ml-platform.svc.cluster.local:9000"

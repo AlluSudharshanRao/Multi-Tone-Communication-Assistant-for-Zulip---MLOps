@@ -1,0 +1,11 @@
+# Optional: HTTPS Ingress for tiered generator APIs (browser or external clients).
+# Prerequisites:
+#   1. Replace FLOATING_IP_PLACEHOLDER in tiered-ingress.yaml with your Chameleon FIP (nip.io).
+#   2. Copy TLS secret into ml-serving, e.g.:
+#        kubectl get secret chameleon-nip-tls -n ml-platform -o yaml | sed 's/namespace: ml-platform/namespace: ml-serving/' | kubectl apply -f -
+# Apply: kubectl apply -k k8s/inference/ingress/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ml-serving
+resources:
+  - tiered-ingress.yaml

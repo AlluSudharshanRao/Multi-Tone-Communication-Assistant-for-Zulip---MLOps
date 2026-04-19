@@ -1,41 +1,32 @@
-# Tone Classifier — Quantized backend (INT8 quantized DistilBERT, lowest latency).
-# Role owner: Serving (rithwik0908/mlops-serving)
-# Dockerfile: https://github.com/rithwik0908/mlops-serving/blob/main/serving/classifier/Dockerfile
-# Namespace: ml-serving
-#
-# Same image as classifier-pytorch/onnx; SERVING_BACKEND=quantized activates
-# model_quantized.py. Smallest memory footprint of the three classifier variants.
-#
-# Port: 8001 (from Dockerfile EXPOSE 8001)
-# Apply: kubectl apply -k k8s/inference/
+# Primary classifier for tiered deploys (staging / canary / production).
+# ONNX and quantized variants live under ../backends/ (single shared pool).
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: classifier-quantized
-  namespace: ml-serving
+  name: classifier-pytorch
   labels:
-    app: classifier-quantized
+    app: classifier-pytorch
     role: serving
-    backend: quantized
+    backend: pytorch
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: classifier-quantized
+      app: classifier-pytorch
   template:
     metadata:
       labels:
-        app: classifier-quantized
+        app: classifier-pytorch
         role: serving
-        backend: quantized
+        backend: pytorch
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8001"
         prometheus.io/path: "/metrics"
     spec:
       containers:
-        - name: classifier-quantized
+        - name: classifier-pytorch
           image: ghcr.io/allusudharshanrao/mlops-serving-classifier:latest
           imagePullPolicy: IfNotPresent
           ports:
@@ -43,11 +34,9 @@ spec:
               name: http
           env:
             - name: SERVING_BACKEND
-              value: "quantized"
+              value: "pytorch"
             - name: MODEL_PATH
               value: "distilbert-base-uncased"
-            - name: ONNX_PATH
-              value: "/app/model_cache/classifier.onnx"
             - name: DUMMY_MODE
               value: "true"
             - name: MLFLOW_TRACKING_URI
@@ -56,34 +45,32 @@ spec:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 10
+            initialDelaySeconds: 15
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 20
+            initialDelaySeconds: 30
             periodSeconds: 20
           resources:
-            # Quantized model — smallest resource envelope of classifier variants.
             requests:
-              cpu: "250m"
-              memory: "256Mi"
+              cpu: "500m"
+              memory: "1Gi"
             limits:
-              cpu: "1"
-              memory: "512Mi"
+              cpu: "2"
+              memory: "2Gi"
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: classifier-quantized
-  namespace: ml-serving
+  name: classifier-pytorch
   labels:
-    app: classifier-quantized
+    app: classifier-pytorch
 spec:
   type: ClusterIP
   selector:
-    app: classifier-quantized
+    app: classifier-pytorch
   ports:
     - name: http
       port: 8001

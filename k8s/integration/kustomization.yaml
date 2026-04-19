@@ -1,0 +1,7 @@
+# Zulip → tone-generator bridge (outgoing webhook target). Namespace: ml-serving.
+# Apply: kubectl apply -k k8s/integration/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ml-serving
+resources:
+  - zulip-bridge-deployment.yaml

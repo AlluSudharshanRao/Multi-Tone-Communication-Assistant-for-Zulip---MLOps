@@ -1,11 +1,10 @@
-# Kustomize bundle: all ml-serving inference workloads.
-# Apply all: kubectl apply -k k8s/inference/
-# Apply single: kubectl apply -f k8s/inference/<manifest>.yaml
+# Tiered inference: staging / canary / prod (PyTorch + generator per tier) + optional backends.
+# Apply: kubectl apply -k k8s/inference/
+# Zulip or in-cluster clients: prefer http://tone-generator-prod:8010 (namespace ml-serving).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: ml-serving
 resources:
-  - classifier-pytorch-deployment.yaml
-  - classifier-onnx-deployment.yaml
-  - classifier-quantized-deployment.yaml
-  - generator-deployment.yaml
+  - overlays/staging
+  - overlays/canary
+  - overlays/prod
+  - backends
