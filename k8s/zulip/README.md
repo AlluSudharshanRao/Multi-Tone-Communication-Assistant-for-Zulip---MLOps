@@ -41,3 +41,5 @@ For **compose-area tone UI** or other server changes, build from your fork of [z
 3. **Upgrade:** always pass **both** values files so immutable fields stay aligned, e.g.  
    `helm upgrade --install zulip-proj15 <chart> -n zulip --kubeconfig ~/.kube/config -f values-chameleon.yaml -f values-secret.yaml`  
    Omitting `values-chameleon.yaml` can reset `zulip.persistence.storageClass` / Ingress and **fail** the upgrade on existing PVCs.
+
+4. **Compose tone UI:** after you build a forked server image, uncomment **`TONE_MLOPS_BRIDGE_URL`** inside `zulip.environment.ZULIP_CUSTOM_SETTINGS` in `values-chameleon.yaml` (or your secret overlay) so Django can reach **`zulip-bridge`** in `ml-serving`. Source and patches: [`integrations/zulip-server-mlops/README.md`](../../integrations/zulip-server-mlops/README.md).

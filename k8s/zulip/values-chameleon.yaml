@@ -25,6 +25,8 @@ zulip:
       # Stable URL (no token): https://<SETTING_EXTERNAL_HOST>/new/
       # Anyone who can reach the server may start org creation; turn off for locked-down servers.
       OPEN_REALM_CREATION = True
+      # Product compose "Tone suggestions" (requires custom zulip-server image from fork; see integrations/zulip-server-mlops/)
+      # TONE_MLOPS_BRIDGE_URL = "http://zulip-bridge.ml-serving.svc.cluster.local:8090/generate"
 
 # ClusterIP + Ingress (k3s default Traefik). OpenStack SG: TCP 80 + 443.
 service:
