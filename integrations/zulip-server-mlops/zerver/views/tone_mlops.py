@@ -8,6 +8,7 @@ TONE_MLOPS_BRIDGE_URL in ZULIP_CUSTOM_SETTINGS (Helm values-secret / production_
 from __future__ import annotations
 
 import json
+import logging
 import urllib.error
 import urllib.request
 from typing import Any
@@ -21,7 +22,12 @@ from zerver.lib.response import json_success
 from zerver.lib.typed_endpoint import typed_endpoint
 from zerver.models import UserProfile
 
+logger = logging.getLogger(__name__)
+
 _MAX_CHARS = 2000
+
+# Cluster-internal bridge URL must not go through HTTP(S)_PROXY (often returns 407).
+_bridge_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 @typed_endpoint
@@ -56,9 +62,21 @@ def tone_suggestions_backend(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with _bridge_opener.open(req, timeout=120) as resp:
             raw = resp.read()
     except urllib.error.HTTPError as e:
+        err_body = ""
+        try:
+            err_body = e.read().decode("utf-8", errors="replace")[:800]
+        except Exception:
+            pass
+        if err_body:
+            logger.warning(
+                "tone_mlops: bridge/generator HTTP %s url=%s body=%s",
+                e.code,
+                bridge_url,
+                err_body,
+            )
         raise JsonableError(
             _("Tone service returned an error ({code}).").format(code=e.code),
         ) from e
