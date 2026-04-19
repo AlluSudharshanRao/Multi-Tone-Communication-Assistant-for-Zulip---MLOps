@@ -25,6 +25,8 @@ zulip:
       # Stable URL (no token): https://<SETTING_EXTERNAL_HOST>/new/
       # Anyone who can reach the server may start org creation; turn off for locked-down servers.
       OPEN_REALM_CREATION = True
+      # Product compose "Tone suggestions" (requires custom zulip-server image from fork; see integrations/zulip-server-mlops/)
+      # TONE_MLOPS_BRIDGE_URL = "http://zulip-bridge.ml-serving.svc.cluster.local:8090/generate"
 
 # ClusterIP + Ingress (k3s default Traefik). OpenStack SG: TCP 80 + 443.
 service:
@@ -86,3 +88,11 @@ postgresql:
 # Trusted public certs (optional, more moving parts): install cert-manager + ClusterIssuer
 # and set e.g. cert-manager.io/cluster-issuer on the Ingress; Let's Encrypt HTTP-01 works
 # if port 80 is reachable on this host for the nip.io name.
+
+# --- Optional: custom Zulip server image (fork of github.com/zulip/zulip for compose UI / APIs) ---
+# Chart keys are at the ROOT of values (same level as `zulip:`, `ingress:`), per docker-zulip helm/zulip/values.yaml.
+# Uncomment and set after you build and push your own zulip-server image:
+# image:
+#   repository: ghcr.io/your-org/zulip-server
+#   tag: "11.6-1-yourbuild"
+# See integrations/README.md (Zulip Web: compose-area tone UI) and k8s/zulip/README.md.

@@ -31,3 +31,15 @@ helm install zulip-proj15 ./zulip-chart \
 
 
 See `values-chameleon.yaml` and `values-secret.yaml.example` for proxy, TLS, realm-creation flags, and **main Zulip container `resources`** (sized from `kubectl top`; re-tune after `helm upgrade`).
+
+## Custom Zulip server image (forked `zulip/zulip`)
+
+For **compose-area tone UI** or other server changes, build from your fork of [zulip/zulip](https://github.com/zulip/zulip) and publish an image compatible with [docker-zulip](https://github.com/zulip/docker-zulip) (same entrypoints as upstream `zulip-server`).
+
+1. **CI/CD:** build and push e.g. `ghcr.io/<org>/zulip-server:<tag>` (pin tags; avoid only `:latest` in production).
+2. **Helm:** set chart-root **`image.repository`** and **`image.tag`** (see commented example at the bottom of [`values-chameleon.yaml`](values-chameleon.yaml)).
+3. **Upgrade:** always pass **both** values files so immutable fields stay aligned, e.g.  
+   `helm upgrade --install zulip-proj15 <chart> -n zulip --kubeconfig ~/.kube/config -f values-chameleon.yaml -f values-secret.yaml`  
+   Omitting `values-chameleon.yaml` can reset `zulip.persistence.storageClass` / Ingress and **fail** the upgrade on existing PVCs.
+
+4. **Compose tone UI:** after you build a forked server image, uncomment **`TONE_MLOPS_BRIDGE_URL`** inside `zulip.environment.ZULIP_CUSTOM_SETTINGS` in `values-chameleon.yaml` (or your secret overlay) so Django can reach **`zulip-bridge`** in `ml-serving`. Source and patches: [`integrations/zulip-server-mlops/README.md`](../../integrations/zulip-server-mlops/README.md).

@@ -38,3 +38,15 @@ Small FastAPI service that accepts **Zulip outgoing webhook** POSTs and forwards
 - [`rollback-inference.yml`](../.github/workflows/rollback-inference.yml) — `kubectl rollout undo` for the same Deployments.
 
 Both require repository secret **`KUBE_CONFIG_B64`**: `base64 -w0 ~/.kube/config` (Linux) or equivalent for your kubeconfig that can update `ml-serving`.
+
+---
+
+## Zulip Web: compose-area tone UI (product / fork integration)
+
+**Shipped in this repo:** [`integrations/zulip-server-mlops/`](zulip-server-mlops/README.md) — Django proxy (`POST /json/messages/tone_suggestions`), compose Web UI (`Tone suggestions` button), `git apply` patches for **Zulip 11.6**, and Helm **`TONE_MLOPS_BRIDGE_URL`** example in [`k8s/zulip/values-chameleon.yaml`](../k8s/zulip/values-chameleon.yaml).
+
+**You still do outside this repo:** fork [zulip/zulip](https://github.com/zulip/zulip), copy those files, apply patches, build a **custom `zulip-server` image** (AGPL-3.0 if you distribute it), push to a registry, and set Helm **`image.repository`** / **`image.tag`** (see [`k8s/zulip/README.md`](../k8s/zulip/README.md)). The Zulip pod must reach **`zulip-bridge`** (cluster DNS or internal Ingress).
+
+**Upgrade cluster:** `helm upgrade --install … -f values-chameleon.yaml -f values-secret.yaml` (always pass **both** `-f` files so PVC / ingress settings are not dropped).
+
+**Branching in *this* repo:** use **`DevOps`** for integration work; merge to **`main`** when stable.
