@@ -93,9 +93,10 @@ postgresql:
 # Root-level keys per docker-zulip helm/zulip/values.yaml. Keeps Helm/Ansible from silently using
 # upstream ghcr.io/zulip/zulip-server when long --set lines break in the shell.
 # Rebuild/push a new tag after server changes, bump tag here, redeploy.
+# toneui = image built from zulip fork with integrations/.../web/src/tone_mlops.ts (editable + Use).
 image:
   repository: ghcr.io/allusudharshanrao/zulip-server
-  tag: "mlops-zulip-11.6-2e74622"
+  tag: "mlops-zulip-11.6-toneui"
   pullPolicy: Always
 
 # --- Smokescreen egress (required for compose "Tone suggestions") ---
