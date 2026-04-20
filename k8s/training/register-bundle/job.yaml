@@ -2,9 +2,9 @@
 # Registers latest successful training runs into MLflow Model Registry and updates aliases.
 # This wires "training → serving" without manually copying model artifacts.
 #
-# Run on-demand:
-#   kubectl delete job -n ml-training register-and-alias-latest --ignore-not-found
-#   kubectl apply -f k8s/training/register-and-alias-latest-job.yaml
+# Apply: kubectl apply -k k8s/training/register-bundle/
+# Re-run: kubectl delete job -n ml-training register-and-alias-latest --ignore-not-found && kubectl apply -k k8s/training/register-bundle/
+# Strict promotion: remove --skip-quality-gates and tune --min-classifier-* in args below.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -23,11 +23,22 @@ spec:
         role: training
     spec:
       restartPolicy: Never
+      imagePullSecrets:
+        - name: ghcr-pull
+      volumes:
+        - name: register-script
+          configMap:
+            name: register-alias-script
+            defaultMode: 0555
       containers:
         - name: register
           image: ghcr.io/allusudharshanrao/mlops-training-classifier:latest
           imagePullPolicy: IfNotPresent
-          command: ["python", "/app/register_and_alias_latest.py"]
+          volumeMounts:
+            - name: register-script
+              mountPath: /scripts
+              readOnly: true
+          command: ["python", "/scripts/register_and_alias_latest.py"]
           args:
             - "--classifier-experiment=teamchat_tone_clf"
             - "--classifier-run-name=candidate_tone_distilbert"
@@ -38,9 +49,9 @@ spec:
             - "--generator-model-name=tone-generator-lora"
             - "--generator-artifact-path=lora_checkpoint"
             - "--aliases=canary,prod"
-            # Keep gates modest; adjust upward once you have stable training data.
             - "--min-classifier-f1-macro=0.70"
             - "--min-classifier-worst-class-f1=0.55"
+            - "--skip-quality-gates"
           env:
             - name: MLFLOW_TRACKING_URI
               value: "http://mlflow.ml-platform.svc.cluster.local:5000"

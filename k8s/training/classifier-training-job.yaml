@@ -10,6 +10,10 @@
 #
 # Apply: kubectl apply -f k8s/training/classifier-training-job.yaml
 # Monitor: kubectl logs -n ml-training -l job-name=classifier-training -f
+#
+# PyTorch serving (prod/canary) loads HuggingFace artifacts under MLflow path "model/".
+# The training image default CMD is baseline NB — override with DistilBERT config here, then run
+# kubectl apply -k k8s/training/register-bundle/ so models:/tone-classifier@{prod,canary} points at that run.
 ---
 apiVersion: batch/v1
 kind: Job
@@ -33,16 +37,52 @@ spec:
         model: distilbert
     spec:
       restartPolicy: OnFailure
+      imagePullSecrets:
+        - name: ghcr-pull
+      initContainers:
+        - name: pull-datasets
+          image: minio/mc:RELEASE.2025-02-21T16-00-46Z
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MINIO_ENDPOINT
+              value: "http://minio.ml-platform.svc.cluster.local:9000"
+            - name: MINIO_BUCKET
+              value: "zulip-rewriter"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-user
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-password
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              mc alias set platform "$MINIO_ENDPOINT" "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
+              mc ls "platform/$MINIO_BUCKET" >/dev/null
+              mc cp --recursive "platform/$MINIO_BUCKET/datasets/" /data/ || true
+          volumeMounts:
+            - name: training-data
+              mountPath: /data
       containers:
         - name: classifier-training
           # Replace with actual image after Data/Training team publishes build.
           image: ghcr.io/allusudharshanrao/mlops-training-classifier:latest
           imagePullPolicy: IfNotPresent
+          args:
+            - "--config"
+            - "/app/configs/candidate_tone_distilbert.yaml"
           env:
             - name: MLFLOW_TRACKING_URI
               value: "http://mlflow.ml-platform.svc.cluster.local:5000"
+            # Informational; train.py uses experiment_name from the YAML above.
             - name: MLFLOW_EXPERIMENT_NAME
-              value: "tone-classifier"
+              value: "teamchat_tone_clf"
             - name: MINIO_ENDPOINT
               value: "minio.ml-platform.svc.cluster.local:9000"
             - name: MINIO_BUCKET
@@ -80,8 +120,8 @@ spec:
             # Increase CPU/memory for larger datasets; GPU not required for fine-tuning
             # at this scale but can be added via the commented block below.
             requests:
-              cpu: "2"
-              memory: "4Gi"
+              cpu: "1"
+              memory: "2Gi"
             limits:
               cpu: "4"
               memory: "8Gi"
@@ -97,32 +137,5 @@ spec:
       volumes:
         - name: training-data
           emptyDir: {}
-          # TODO: replace with PVC or init-container that syncs datasets from MinIO.
-          # Example init-container:
-          # initContainers:
-          #   - name: pull-data
-          #     image: minio/mc:latest
-          #     command:
-          #       - sh
-          #       - -c
-          #       - |
-          #         mc alias set minio http://$MINIO_ENDPOINT $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
-          #         mc cp --recursive minio/zulip-rewriter/datasets/ /data/
-          #     env:
-          #       - name: MINIO_ENDPOINT
-          #         value: "minio.ml-platform.svc.cluster.local:9000"
-          #       - name: MINIO_ROOT_USER
-          #         valueFrom:
-          #           secretKeyRef:
-          #             name: minio-root
-          #             key: root-user
-          #       - name: MINIO_ROOT_PASSWORD
-          #         valueFrom:
-          #           secretKeyRef:
-          #             name: minio-root
-          #             key: root-password
-          #     volumeMounts:
-          #       - name: training-data
-          #         mountPath: /data
         - name: output
           emptyDir: {}

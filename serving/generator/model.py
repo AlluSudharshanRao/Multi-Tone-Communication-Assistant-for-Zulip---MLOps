@@ -17,6 +17,8 @@ Real mode (DUMMY_MODE=false) — two backends (match training_proj15):
      MODEL_NAME=HuggingFaceTB/SmolLM2-135M-Instruct  # base model
      PEFT_MODEL_PATH=/models/lora                     # optional; adapter from train_llm
      GEN_SYSTEM, GEN_USER_TEMPLATE                    # optional overrides
+     ENCODER_REPETITION_PENALTY, REPETITION_PENALTY  # seq2seq + causal (defaults tuned for Flan-T5)
+     SEQ2SEQ_NUM_BEAMS, SEQ2SEQ_NO_REPEAT_NGRAM      # beam / n-gram repeat control
 """
 
 from __future__ import annotations
@@ -36,8 +38,10 @@ PEFT_MODEL_PATH = os.environ.get("PEFT_MODEL_PATH", "").strip()
 
 # Defaults aligned with training_proj15-main/training/configs/llm_generator_small.yaml
 DEFAULT_GEN_SYSTEM = (
-    "You rewrite short workplace chat messages. Follow the requested tone exactly. "
-    "Output only the rewritten message, no quotes or preamble."
+    "You rewrite short workplace chat messages for a workplace chat app. "
+    "Match the requested tone clearly (word choice and register must differ across formal vs friendly vs neutral). "
+    "Keep the same intent; fix obvious spelling and missing apostrophes (e.g. whats → what's). "
+    "Output only the rewritten message — no labels, quotes, or preamble."
 )
 DEFAULT_GEN_USER_TEMPLATE = "Tone: {tone}\nMessage: {original}"
 
@@ -49,6 +53,11 @@ MAX_NEW_TOKENS = int(os.environ.get("MAX_NEW_TOKENS", "128"))
 MAX_CAUSAL_INPUT_LEN = int(os.environ.get("MAX_CAUSAL_INPUT_LEN", "512"))
 MAX_NEW_TOKENS_CAUSAL = int(os.environ.get("MAX_NEW_TOKENS_CAUSAL", "128"))
 TRUST_REMOTE_CODE = os.environ.get("TRUST_REMOTE_CODE", "false").lower() == "true"
+# Seq2seq (Flan-T5): discourage copying the encoder prompt verbatim (HF generation kwargs).
+ENCODER_REPETITION_PENALTY = float(os.environ.get("ENCODER_REPETITION_PENALTY", "1.18"))
+REPETITION_PENALTY = float(os.environ.get("REPETITION_PENALTY", "1.08"))
+SEQ2SEQ_NUM_BEAMS = int(os.environ.get("SEQ2SEQ_NUM_BEAMS", "4"))
+SEQ2SEQ_NO_REPEAT_NGRAM = int(os.environ.get("SEQ2SEQ_NO_REPEAT_NGRAM", "2"))
 
 
 def _generator_backend() -> str:
@@ -79,6 +88,9 @@ _SLANG = {
     r"\bwont\b": "will not",
     r"\bim\b": "I am",
     r"\bits\b": "it has",
+    r"\bwhats\b": "what's",
+    r"\bwheres\b": "where's",
+    r"\bhows\b": "how's",
     r"!!+": ".",
     r"\?\?+": "?",
 }
@@ -92,25 +104,43 @@ def _clean(text: str) -> str:
     return t[0].upper() + t[1:] if t else text
 
 
+def _fallback_rewrite_texts(cleaned: str) -> dict[str, str]:
+    """Deterministic per-tone lines when the LM returns a degenerate rewrite."""
+    low = cleaned.lower()
+    return {
+        "formal": f"{cleaned}. I would appreciate your prompt attention to this matter.",
+        "friendly": f"Hey! Just wanted to check in — {low}. Thanks so much!",
+        "neutral": f"{cleaned}. Please address this when possible.",
+    }
+
+
+def _normalized(s: str) -> str:
+    return re.sub(r"\s+", " ", s.strip().lower())
+
+
+def _rewrite_is_degenerate(original: str, rewrite: str) -> bool:
+    r = rewrite.strip()
+    if not r:
+        return True
+    if _normalized(original) == _normalized(r):
+        return True
+    rl = r.lower()
+    if "original:" in rl and "rewrite" in rl and len(r) > len(original) + 40:
+        return True
+    return False
+
+
 class _DummyGenerator:
     def generate_all(self, text: str) -> dict:
         t_total = time.perf_counter()
         variants = {}
         cleaned = _clean(text)
 
+        lines = _fallback_rewrite_texts(cleaned)
         templates = {
-            "formal": (
-                f"{cleaned}. I would appreciate your prompt attention to this matter.",
-                random.uniform(0.140, 0.200),
-            ),
-            "friendly": (
-                f"Hey! Just wanted to check in — {cleaned.lower()}. Thanks so much!",
-                random.uniform(0.140, 0.200),
-            ),
-            "neutral": (
-                f"{cleaned}. Please address this when possible.",
-                random.uniform(0.140, 0.200),
-            ),
+            "formal": (lines["formal"], random.uniform(0.140, 0.200)),
+            "friendly": (lines["friendly"], random.uniform(0.140, 0.200)),
+            "neutral": (lines["neutral"], random.uniform(0.140, 0.200)),
         }
 
         offensive = any(
@@ -139,19 +169,25 @@ class _DummyGenerator:
 
 TONE_PROMPTS = {
     "formal": (
-        "Rewrite the following message in a formal, professional tone suitable "
-        "for a workplace communication platform. Preserve all original meaning. "
-        "Output only the rewritten message.\n\nOriginal: {text}\n\nFormal rewrite:"
+        "Task: rewrite for a workplace chat in a formal, respectful, professional tone. "
+        "Keep the same intent and facts. Use different wording than the original (no copy-paste). "
+        "Fix obvious spelling and apostrophes. "
+        "Reply with only the rewritten message — no preamble, quotes, or labels.\n\n"
+        "Message:\n{text}\n\nFormal:"
     ),
     "friendly": (
-        "Rewrite the following message in a warm, friendly, and polite tone. "
-        "Preserve all original meaning. "
-        "Output only the rewritten message.\n\nOriginal: {text}\n\nFriendly rewrite:"
+        "Task: rewrite for a workplace chat in a warm, friendly, polite tone. "
+        "Keep the same intent and facts. Use different wording than the original (no copy-paste). "
+        "Fix obvious spelling and apostrophes. "
+        "Reply with only the rewritten message — no preamble, quotes, or labels.\n\n"
+        "Message:\n{text}\n\nFriendly:"
     ),
     "neutral": (
-        "Rewrite the following message in a clear, neutral, and professional tone. "
-        "Preserve all original meaning. Remove slang and overly casual phrasing. "
-        "Output only the rewritten message.\n\nOriginal: {text}\n\nNeutral rewrite:"
+        "Task: rewrite for a workplace chat in a clear, neutral, concise professional tone. "
+        "Remove heavy slang; keep the same intent and facts. "
+        "Use different wording than the original (no copy-paste). Fix obvious spelling and apostrophes. "
+        "Reply with only the rewritten message — no preamble, quotes, or labels.\n\n"
+        "Message:\n{text}\n\nNeutral:"
     ),
 }
 
@@ -179,6 +215,8 @@ class _RealSeq2SeqGenerator:
         t_total = time.perf_counter()
         variants = {}
         offensive = False
+        cleaned = _clean(text)
+        fallbacks = _fallback_rewrite_texts(cleaned)
 
         for tone in TONES:
             prompt = TONE_PROMPTS[tone].format(text=text)
@@ -190,12 +228,20 @@ class _RealSeq2SeqGenerator:
                 output_ids = self._model.generate(
                     **inputs,
                     max_new_tokens=MAX_NEW_TOKENS,
-                    num_beams=4,
+                    num_beams=SEQ2SEQ_NUM_BEAMS,
                     early_stopping=True,
-                    no_repeat_ngram_size=3,
+                    no_repeat_ngram_size=SEQ2SEQ_NO_REPEAT_NGRAM,
+                    encoder_repetition_penalty=ENCODER_REPETITION_PENALTY,
+                    repetition_penalty=REPETITION_PENALTY,
                 )
             tone_latency_ms = (time.perf_counter() - t0) * 1000
             rewrite = self._tokenizer.decode(output_ids[0], skip_special_tokens=True).strip()
+            if _rewrite_is_degenerate(text, rewrite):
+                logger.info(
+                    "Seq2seq degenerate output for tone=%s — using template fallback",
+                    tone,
+                )
+                rewrite = fallbacks[tone]
             if self._profanity.contains_profanity(rewrite):
                 offensive = True
             variants[tone] = {"text": rewrite, "tone_latency_ms": round(tone_latency_ms, 2)}
@@ -271,6 +317,9 @@ class _RealCausalGenerator:
         variants = {}
         offensive = False
 
+        cleaned = _clean(text)
+        fallbacks = _fallback_rewrite_texts(cleaned)
+
         for tone in TONES:
             user_content = GEN_USER_TEMPLATE.format(tone=tone, original=text)
             prompt = _build_causal_prompt(self._tokenizer, GEN_SYSTEM, user_content)
@@ -291,10 +340,17 @@ class _RealCausalGenerator:
                     eos_token_id=self._tokenizer.eos_token_id,
                     do_sample=False,
                     num_beams=1,
+                    repetition_penalty=REPETITION_PENALTY,
                 )
             tone_latency_ms = (time.perf_counter() - t0) * 1000
             gen_ids = output_ids[0, input_len:]
             rewrite = self._tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+            if _rewrite_is_degenerate(text, rewrite):
+                logger.info(
+                    "Causal degenerate output for tone=%s — using template fallback",
+                    tone,
+                )
+                rewrite = fallbacks[tone]
             if self._profanity.contains_profanity(rewrite):
                 offensive = True
             variants[tone] = {"text": rewrite, "tone_latency_ms": round(tone_latency_ms, 2)}

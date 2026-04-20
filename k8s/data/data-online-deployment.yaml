@@ -20,6 +20,8 @@ spec:
         app: data-online
         role: data
     spec:
+      imagePullSecrets:
+        - name: ghcr-pull
       containers:
         - name: online
           image: ghcr.io/allusudharshanrao/mlops-data-online:latest
@@ -50,7 +52,7 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 192Mi
             limits:
               cpu: "1"
-              memory: 1Gi
+              memory: 768Mi

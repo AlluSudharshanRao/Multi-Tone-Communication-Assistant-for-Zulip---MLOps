@@ -22,6 +22,8 @@ spec:
         prometheus.io/port: "8010"
         prometheus.io/path: "/metrics"
     spec:
+      imagePullSecrets:
+        - name: ghcr-pull
       containers:
         - name: tone-generator
           image: ghcr.io/allusudharshanrao/mlops-serving-generator:latest
@@ -57,12 +59,14 @@ spec:
             initialDelaySeconds: 90
             periodSeconds: 30
           resources:
+            # Tuned for single-node ~32Gi clusters: low requests improve scheduling;
+            # limits still allow Flan-T5 / short bursts (watch OOM if DUMMY_MODE=false + large models).
             requests:
-              cpu: "1"
-              memory: "4Gi"
+              cpu: "500m"
+              memory: "2Gi"
             limits:
               cpu: "4"
-              memory: "8Gi"
+              memory: "6Gi"
 ---
 apiVersion: v1
 kind: Service

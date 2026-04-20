@@ -283,6 +283,8 @@ ansible-playbook -i inventory.ini playbooks/deploy_zulip.yml \
 
 Adjust `zulip_chart_dir` if you cloned docker-zulip elsewhere. The playbook runs `helm dependency update` and `helm upgrade --install`.
 
+**Compose “Tone suggestions”:** tracked `values-chameleon.yaml` sets `TONE_MLOPS_BRIDGE_URL` to the in-cluster bridge. You still need a **custom Zulip server image** from the fork under `integrations/zulip-server-mlops/` (see that README). After changing bridge URL or tone settings, re-run this Helm upgrade so the Zulip pod picks up `ZULIP_CUSTOM_SETTINGS`.
+
 **Manual Helm equivalent** (on the VM), after `helm dependency update` inside the chart directory:
 
 ```bash
@@ -305,6 +307,9 @@ kubectl get ns
 kubectl get pods,svc,ingress -n ml-platform
 kubectl get pods,svc,ingress -n monitoring
 kubectl get pods,svc,ingress -n zulip
+kubectl get pods,svc -n ml-data
+kubectl get pods,svc -n ml-serving
+kubectl get jobs,pods -n ml-training
 ```
 
 **Smoke tests:**

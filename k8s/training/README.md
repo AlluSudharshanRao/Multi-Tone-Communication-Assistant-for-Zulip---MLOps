@@ -21,13 +21,19 @@ kubectl apply -f k8s/training/classifier-training-job.yaml
 kubectl logs -n ml-training -l job-name=classifier-training -f
 ```
 
+(Or `kubectl apply -k k8s/training/` — reapplies classifier + generator Job manifests only.)
+
 ### 2) Register + alias the latest successful model run
+
+The register Job mounts the Python script from a **ConfigMap** in **`k8s/training/register-bundle/`** (stable ConfigMap name). Do **not** use `kubectl apply -f` on the Job file alone.
 
 ```bash
 kubectl delete job -n ml-training register-and-alias-latest --ignore-not-found
-kubectl apply -f k8s/training/register-and-alias-latest-job.yaml
+kubectl apply -k k8s/training/register-bundle/
 kubectl logs -n ml-training -l job-name=register-and-alias-latest -f
 ```
+
+If `kubectl apply -k` errors with **`spec.template: ... field is immutable`**, an older Job still exists — run the **`kubectl delete job`** line above, then apply again.
 
 ### 3) Restart serving to pick up the new alias
 
