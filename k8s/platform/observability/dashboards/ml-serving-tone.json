@@ -2,66 +2,176 @@
   "annotations": {"list": []},
   "editable": true,
   "fiscalYearStartMonth": 0,
-  "graphTooltip": 0,
+  "graphTooltip": 1,
   "links": [],
   "liveNow": false,
   "panels": [
     {
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
-      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 0},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}, "unit": "reqps"},
+        "overrides": []
+      },
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 0},
       "id": 1,
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom"},
+        "tooltip": {"mode": "multi"}
+      },
       "targets": [
         {
-          "expr": "sum by (kubernetes_pod_name) (rate(generator_requests_total{kubernetes_namespace=\"ml-serving\"}[5m]))",
-          "legendFormat": "{{kubernetes_pod_name}}",
+          "expr": "sum by (status) (rate(classifier_requests_total{kubernetes_namespace=\"ml-serving\"}[5m]))",
+          "legendFormat": "{{status}}",
           "refId": "A"
         }
       ],
-      "title": "Generator request rate (by pod)",
+      "title": "Classifier — Request Rate (RPS)",
       "type": "timeseries"
     },
     {
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
-      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 0},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}, "unit": "s"},
+        "overrides": []
+      },
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 0},
       "id": 2,
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom"},
+        "tooltip": {"mode": "multi"}
+      },
       "targets": [
         {
-          "expr": "sum by (kubernetes_pod_name) (rate(generator_requests_total{kubernetes_namespace=\"ml-serving\",status=\"error\"}[5m]))",
-          "legendFormat": "{{kubernetes_pod_name}}",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(classifier_latency_seconds_bucket{kubernetes_namespace=\"ml-serving\"}[5m])))",
+          "legendFormat": "p95",
           "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(classifier_latency_seconds_bucket{kubernetes_namespace=\"ml-serving\"}[5m])))",
+          "legendFormat": "p50",
+          "refId": "B"
         }
       ],
-      "title": "Generator errors (rate)",
+      "title": "Classifier — Latency p95 / p50",
       "type": "timeseries"
     },
     {
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
-      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 7},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.01},
+              {"color": "red", "value": 0.05}
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 0},
       "id": 3,
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "background"},
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le, kubernetes_pod_name) (rate(generator_latency_seconds_bucket{kubernetes_namespace=\"ml-serving\"}[5m])))",
-          "legendFormat": "p95 {{kubernetes_pod_name}}",
+          "expr": "sum(rate(classifier_requests_total{kubernetes_namespace=\"ml-serving\",status=\"error\"}[5m])) / clamp_min(sum(rate(classifier_requests_total{kubernetes_namespace=\"ml-serving\"}[5m])), 0.001)",
+          "legendFormat": "error ratio",
           "refId": "A"
         }
       ],
-      "title": "Generator latency p95",
+      "title": "Classifier — Error Ratio",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}, "unit": "reqps"},
+        "overrides": []
+      },
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 7},
+      "id": 4,
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom"},
+        "tooltip": {"mode": "multi"}
+      },
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(generator_requests_total{kubernetes_namespace=\"ml-serving\"}[5m]))",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Generator — Request Rate (RPS)",
       "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}, "unit": "s"},
+        "overrides": []
+      },
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 7},
+      "id": 5,
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom"},
+        "tooltip": {"mode": "multi"}
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(generator_latency_seconds_bucket{kubernetes_namespace=\"ml-serving\"}[5m])))",
+          "legendFormat": "p95",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(generator_latency_seconds_bucket{kubernetes_namespace=\"ml-serving\"}[5m])))",
+          "legendFormat": "p50",
+          "refId": "B"
+        }
+      ],
+      "title": "Generator — Latency p95 / p50",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.01},
+              {"color": "red", "value": 0.05}
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 7},
+      "id": 6,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "background"},
+      "targets": [
+        {
+          "expr": "sum(rate(generator_requests_total{kubernetes_namespace=\"ml-serving\",status=\"error\"}[5m])) / clamp_min(sum(rate(generator_requests_total{kubernetes_namespace=\"ml-serving\"}[5m])), 0.001)",
+          "legendFormat": "error ratio",
+          "refId": "A"
+        }
+      ],
+      "title": "Generator — Error Ratio",
+      "type": "stat"
     }
   ],
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["mlops", "ml-serving"],
+  "tags": ["mlops", "ml-serving", "serving"],
   "templating": {"list": []},
   "time": {"from": "now-6h", "to": "now"},
   "timezone": "browser",
-  "title": "ML serving — tone inference",
+  "title": "ML Serving — Classifier & Generator",
   "uid": "ml-serving-tone",
-  "version": 1
+  "version": 2
 }
