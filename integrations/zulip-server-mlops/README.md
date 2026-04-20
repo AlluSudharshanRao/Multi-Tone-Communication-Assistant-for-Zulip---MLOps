@@ -60,14 +60,15 @@ Follow Zulip’s documentation for producing a **`zulip-server`**-compatible ima
 ## 6. Smoke test
 
 1. Log in to the web app, open compose, type a sentence, click **Tone suggestions**.
-2. Expect JSON success with **`mlops_tone_response`** echoing the generator payload (`variants`, `classifier_result`, etc.).
-3. **`curl`** (with session cookie / API key) is optional; the web client uses the same **`/json/...`** session as other compose calls.
+2. Expect one **editable** draft per tone and a **Use** button; edit if you like, then **Use** copies that text into the main compose box (you can edit again before send).
+3. The API returns **`mlops_tone_response`** echoing the generator payload (`variants`, `classifier_result`, etc.).
+4. **`curl`** (with session cookie / API key) is optional; the web client uses the same **`/json/...`** session as other compose calls.
 
 ## Files in this folder
 
 | Path | Role |
 |------|------|
 | `zerver/views/tone_mlops.py` | Django `typed_endpoint` proxy |
-| `web/src/tone_mlops.ts` | Compose UI + `channel.post` |
+| `web/src/tone_mlops.ts` | Compose UI: `channel.post`, per-tone editable drafts + **Use** → compose |
 | `patches/0001-zproject-urls-11.6.patch` | Register route in `zproject/urls.py` |
 | `patches/0002-web-compose_setup-11.6.patch` | Wire UI in `web/src/compose_setup.js` |

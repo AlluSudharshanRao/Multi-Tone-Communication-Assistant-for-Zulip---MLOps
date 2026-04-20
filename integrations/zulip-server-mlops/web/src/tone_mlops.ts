@@ -3,31 +3,111 @@ import $ from "jquery";
 import * as channel from "./channel.ts";
 import {$t} from "./i18n.ts";
 
-function summarize_variants(ml: Record<string, unknown>): string {
+function variantBodyText(body: unknown): string {
+    if (typeof body === "string") {
+        return body;
+    }
+    if (body && typeof body === "object" && "text" in body) {
+        return String((body as {text?: unknown}).text ?? "");
+    }
+    return "";
+}
+
+/** Renders editable fields + Use buttons; user can edit text before applying to compose. */
+function renderToneResults($out: JQuery, ml: Record<string, unknown>): void {
+    $out.empty();
     const variants = ml.variants;
     if (!variants || typeof variants !== "object") {
-        return JSON.stringify(ml, null, 2);
+        $out.text(JSON.stringify(ml, null, 2));
+        return;
     }
-    const lines: string[] = [];
+
+    $out.append(
+        $("<div/>", {
+            class: "mlops-tone-hint",
+            text: $t({
+                defaultMessage: "Edit a suggestion, then click Use to place it in your message.",
+            }),
+            css: {fontSize: "12px", opacity: "0.85", marginBottom: "8px"},
+        }),
+    );
+
+    const $compose = $("textarea#compose-textarea");
+
     for (const [tone, body] of Object.entries(variants as Record<string, unknown>)) {
-        let t = "";
-        if (typeof body === "string") {
-            t = body;
-        } else if (body && typeof body === "object" && "text" in body) {
-            t = String((body as {text?: unknown}).text ?? "");
-        }
-        lines.push(`${tone}: ${t}`);
+        const text = variantBodyText(body);
+        const $row = $("<div/>", {
+            class: "mlops-tone-suggestion-row",
+            css: {marginBottom: "10px"},
+        });
+
+        $row.append(
+            $("<label/>", {
+                class: "mlops-tone-suggestion-label",
+                for: `mlops-tone-draft-${tone}`,
+                text: tone,
+                css: {
+                    display: "block",
+                    fontWeight: 600,
+                    textTransform: "capitalize",
+                    marginBottom: "4px",
+                },
+            }),
+        );
+
+        const draftId = `mlops-tone-draft-${tone}`;
+        const $edit = $("<textarea/>", {
+            id: draftId,
+            class: "mlops-tone-suggestion-draft",
+            "aria-label": tone,
+            rows: 3,
+            spellcheck: "true",
+            css: {
+                width: "100%",
+                maxWidth: "36rem",
+                boxSizing: "border-box",
+                resize: "vertical",
+                fontFamily: "inherit",
+                fontSize: "13px",
+                lineHeight: "1.35",
+                padding: "6px 8px",
+            },
+        });
+        $edit.val(text);
+
+        const $use = $("<button>", {
+            type: "button",
+            class: "button small rounded",
+            text: $t({defaultMessage: "Use"}),
+        });
+        $use.on("click", () => {
+            const v = $edit.val();
+            if (typeof v === "string") {
+                $compose.val(v);
+                $compose.trigger("input");
+            }
+        });
+
+        $row.append($edit).append(
+            $("<div/>", {css: {marginTop: "4px"}}).append($use),
+        );
+        $out.append($row);
     }
+
     const cr = ml.classifier_result;
     if (cr && typeof cr === "object") {
         const pred =
             (cr as {predicted_tone?: unknown}).predicted_tone ??
             (cr as {label?: unknown}).label;
         if (pred !== undefined) {
-            lines.push(`(classifier: ${String(pred)})`);
+            $out.append(
+                $("<div/>", {
+                    text: `(classifier: ${String(pred)})`,
+                    css: {fontSize: "12px", opacity: "0.85", marginTop: "6px"},
+                }),
+            );
         }
     }
-    return lines.join("\n");
 }
 
 export function initialize(): void {
@@ -44,15 +124,14 @@ export function initialize(): void {
         class: "button small rounded",
         text: $t({defaultMessage: "Tone suggestions"}),
     });
-    const $out = $("<pre/>", {
+    const $out = $("<div/>", {
+        class: "mlops-tone-suggestions-panel",
         css: {
-            whiteSpace: "pre-wrap",
-            maxHeight: "140px",
-            overflow: "auto",
             display: "none",
             marginTop: "6px",
-            fontSize: "12px",
-            fontFamily: "inherit",
+            maxHeight: "320px",
+            overflow: "auto",
+            fontSize: "13px",
         },
     });
     $root.append($btn).append($out);
@@ -61,7 +140,7 @@ export function initialize(): void {
     $btn.on("click", () => {
         const content = $("textarea#compose-textarea").val();
         if (typeof content !== "string" || !content.trim()) {
-            $out.text($t({defaultMessage: "Type a message first."})).show();
+            $out.empty().text($t({defaultMessage: "Type a message first."})).show();
             return;
         }
         $btn.prop("disabled", true);
@@ -77,7 +156,8 @@ export function initialize(): void {
                     $out.text($t({defaultMessage: "No suggestions returned."})).show();
                     return;
                 }
-                $out.text(summarize_variants(tr)).show();
+                renderToneResults($out, tr);
+                $out.show();
             },
             error(xhr) {
                 $btn.prop("disabled", false);
