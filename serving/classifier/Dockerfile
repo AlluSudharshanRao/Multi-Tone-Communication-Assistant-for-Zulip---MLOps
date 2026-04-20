@@ -21,12 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Core HTTP stack + CPU PyTorch + HuggingFace (prod/canary use DUMMY_MODE=false).
 COPY requirements.txt .
-RUN pip install --no-cache-dir \
-    fastapi==0.111.0 \
-    "uvicorn[standard]==0.29.0" \
-    pydantic==2.7.1 \
-    numpy==1.26.4 \
-    prometheus-client==0.20.0
+RUN pip install --no-cache-dir -r requirements.txt
 
 RUN pip install --no-cache-dir torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir "transformers==4.40.0" "safetensors>=0.4.3"
