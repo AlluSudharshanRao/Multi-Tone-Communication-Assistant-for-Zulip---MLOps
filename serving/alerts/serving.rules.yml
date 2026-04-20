@@ -1,6 +1,5 @@
 # Reference Prometheus alerting rules for tone classifier + generator (serving metrics).
-# Canonical UI: https://prometheus.129.114.27.192.nip.io/ — ask DevOps to merge these rules into
-# the team's Prometheus config (do not run a separate alerting stack for the same cluster).
+# Cluster copy (kept in sync): k8s/platform/observability/configmap-prometheus.yaml → key serving.rules.yml
 # Optional local compose Prometheus may scrape serving/ without these rules loaded.
 
 groups:

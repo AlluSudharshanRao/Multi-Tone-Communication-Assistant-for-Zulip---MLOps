@@ -1,6 +1,6 @@
 # One platform policy and Chameleon cleanup
 
-This document is the **team agreement** for the integrated MLOps stack: a single shared **MLflow**, **MinIO**, and **Prometheus/Grafana** on the course cluster, plus a checklist to remove duplicate or abandoned resources before submission.
+This document is the **team agreement** for the integrated MLOps stack: a single shared **MLflow**, **MinIO**, and **Prometheus/Grafana/Alertmanager** on the course cluster, plus a checklist to remove duplicate or abandoned resources before submission.
 
 ---
 
@@ -10,7 +10,7 @@ This document is the **team agreement** for the integrated MLOps stack: a single
 |-----------|----------------------|------------------|------------|
 | MLflow | `ml-platform` | [`k8s/platform/mlflow/`](../k8s/platform/mlflow/) | `deploy_platform.yml` |
 | MinIO | `ml-platform` | [`k8s/platform/minio/`](../k8s/platform/minio/) | `deploy_platform.yml` |
-| Prometheus + Grafana | `monitoring` | [`k8s/platform/observability/`](../k8s/platform/observability/) | `deploy_platform.yml` |
+| Prometheus + Grafana + Alertmanager | `monitoring` | [`k8s/platform/observability/`](../k8s/platform/observability/) | `deploy_platform.yml` |
 | Namespaces for Zulip + ML roles | (see table below) | [`k8s/base/namespaces.yaml`](../k8s/base/namespaces.yaml) | `deploy_platform.yml` (same apply step) |
 
 **Rule:** Do not run a second MLflow instance, second MinIO deployment for the same purpose, or a parallel “course monitoring” stack unless the team documents an exceptional technical reason (rubric: avoid duplicate role-owned stacks).
@@ -24,7 +24,7 @@ Run from `infra/ansible/` with your `inventory.ini` (see [`README.md`](ansible/R
 | Order | Playbook | What it does | Depends on |
 |-------|----------|----------------|--------------|
 | 1 | [`playbooks/k3s_install.yml`](ansible/playbooks/k3s_install.yml) | Installs k3s, kubeconfig for `cc` | Terraform VM reachable |
-| 2 | [`playbooks/deploy_platform.yml`](ansible/playbooks/deploy_platform.yml) | Copies `k8s/` to `/opt/mlops_project/k8s/` on the VM; `kubectl apply` **namespaces**, **MLflow**, **MinIO**, **Prometheus/Grafana**; bootstraps `minio-root` and `grafana-admin` Secrets if missing | k3s installed |
+| 2 | [`playbooks/deploy_platform.yml`](ansible/playbooks/deploy_platform.yml) | Copies `k8s/` to `/opt/mlops_project/k8s/` on the VM; `kubectl apply` **namespaces**, **MLflow**, **MinIO**, **Prometheus/Grafana/Alertmanager**; bootstraps `minio-root` and `grafana-admin` Secrets if missing | k3s installed |
 | 3 | [`playbooks/deploy_zulip.yml`](ansible/playbooks/deploy_zulip.yml) | Helm install/upgrade **Zulip** (docker-zulip chart) | Step 2 (so `values-chameleon.yaml` exists on VM); VM-local `values-secret.yaml` |
 | 4 | [`playbooks/deploy_ml_workloads.yml`](ansible/playbooks/deploy_ml_workloads.yml) | Replicates `minio-root` into `ml-data`; `kubectl apply -k` for **`k8s/data/`**, **`k8s/inference/`**, **`k8s/training/`** | Step 2 (**MinIO** and namespaces must exist) |
 
@@ -42,7 +42,7 @@ Declared in [`k8s/base/namespaces.yaml`](../k8s/base/namespaces.yaml):
 |-----------|---------|
 | `zulip` | Zulip Helm release |
 | `ml-platform` | MLflow, MinIO |
-| `monitoring` | Prometheus, Grafana |
+| `monitoring` | Prometheus, Grafana, Alertmanager |
 | `ml-data` | Data workloads (ingest, online, batch, …) |
 | `ml-serving` | Classifier + generator inference |
 | `ml-training` | Training Jobs |

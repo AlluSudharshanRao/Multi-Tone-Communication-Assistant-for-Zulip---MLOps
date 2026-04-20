@@ -5,3 +5,5 @@ kind: Kustomization
 resources:
   - classifier-pytorch.yaml
   - generator.yaml
+  - hpa-classifier.yaml
+  - hpa-generator.yaml

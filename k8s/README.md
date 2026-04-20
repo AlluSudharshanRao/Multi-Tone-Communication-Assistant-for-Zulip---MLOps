@@ -6,7 +6,7 @@ Namespaces are defined in [`base/namespaces.yaml`](base/namespaces.yaml). Apply 
 |------|-----------|------|
 | [`platform/mlflow/`](platform/mlflow/) | `ml-platform` | DevOps — MLflow |
 | [`platform/minio/`](platform/minio/) | `ml-platform` | DevOps — MinIO |
-| [`platform/observability/`](platform/observability/) | `monitoring` | DevOps — Prometheus / Grafana |
+| [`platform/observability/`](platform/observability/) | `monitoring` | DevOps — Prometheus / Grafana / Alertmanager (rules + HPA path in `inference/base`) |
 | [`zulip/`](zulip/) | `zulip` | Product — Helm values + docs (install via Ansible) |
 | [`inference/`](inference/) | `ml-serving` | Serving — tiered **staging / canary / prod** classifier + generator (`base/` + `overlays/`) + optional ONNX/quantized [`backends/`](inference/backends/); see [`inference/README.md`](inference/README.md) |
 | [`training/`](training/) | `ml-training` | Training — Jobs |

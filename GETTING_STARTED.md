@@ -33,7 +33,7 @@ This guide describes **what this repository implements** and **how to run it end
 | Ingress + HTTPS (demo) | k3s default **Traefik**; TLS Secret `chameleon-nip-tls` |
 | Experiment tracking | **MLflow** in namespace `ml-platform` (`k8s/platform/mlflow/`) |
 | Object storage (S3 API) | **MinIO** in namespace `ml-platform` (`k8s/platform/minio/`) |
-| Metrics + dashboards | **Prometheus** + **Grafana** in namespace `monitoring` (`k8s/platform/observability/`) |
+| Metrics + dashboards + alerting | **Prometheus** + **Grafana** + **Alertmanager** in namespace `monitoring` (`k8s/platform/observability/`) |
 | Team chat (base product) | **Zulip** from [docker-zulip](https://github.com/zulip/docker-zulip) Helm chart, values under `k8s/zulip/` |
 
 Traffic flow: **Internet → floating IP :443 → Traefik → Ingress rules → MLflow, MinIO (API + console), Grafana, Prometheus (optional Ingress), and Zulip Services.**
@@ -63,7 +63,7 @@ Traffic flow: **Internet → floating IP :443 → Traefik → Ingress rules → 
 | `k8s/base/namespaces.yaml` | `zulip`, `ml-platform`, teammate namespaces |
 | `k8s/platform/mlflow/` | MLflow Deployment, PVC, Service, Ingress (Kustomize) |
 | `k8s/platform/minio/` | MinIO Deployment, PVC, Service, API + console Ingresses (Kustomize) |
-| `k8s/platform/observability/` | Prometheus + Grafana (PVCs, RBAC, Grafana Ingress) |
+| `k8s/platform/observability/` | Prometheus + Grafana + Alertmanager (PVCs, RBAC, alert rules, Grafana Ingress) |
 | `k8s/zulip/values-chameleon.yaml` | Non-secret Helm overrides (Ingress, storage class, proxy) |
 | `k8s/zulip/values-secret.yaml.example` | Template for **local** `values-secret.yaml` (gitignored) |
 
@@ -327,7 +327,7 @@ If **`/new/`** org creation is enabled, ensure `SETTING_OPEN_REALM_CREATION` is 
 
 - **One platform policy:** Use a single MLflow, MinIO, and Prometheus/Grafana stack; know who runs `deploy_platform.yml` vs `deploy_ml_workloads.yml`; clean up duplicate OpenStack and Kubernetes resources before submission. Details: [`infra/ONE_PLATFORM_AND_CLEANUP.md`](infra/ONE_PLATFORM_AND_CLEANUP.md).
 - **Traefik** is the default k3s ingress controller; `ingressClassName: traefik` is set on MLflow, MinIO, Grafana, Prometheus (if exposed), and Zulip Ingresses.
-- **Prometheus/Grafana:** Prometheus scrapes pods annotated with `prometheus.io/scrape: "true"` (MLflow includes these). Prometheus has no public Ingress by default; use Grafana’s Explore or add dashboards.
+- **Prometheus/Grafana/Alertmanager:** Prometheus scrapes pods annotated with `prometheus.io/scrape: "true"` (for example inference in `ml-serving`). Evaluated alert rules forward to Alertmanager (configure webhook in `k8s/platform/observability/configmap-alertmanager.yaml`). Use Grafana’s Explore or dashboards; Prometheus Ingress is optional.
 - **Storage:** examples target k3s **`local-path`**; change `storageClassName` / Helm values if your cluster uses another provisioner.
 - **Optional path:** `infra/terraform/k8s-apps/` can manage some Kubernetes resources with Terraform; this is optional and orthogonal to the Ansible flow above.
 - **`zulip/` submodule:** upstream source reference only; runtime uses published images via the docker-zulip chart.

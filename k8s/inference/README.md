@@ -4,7 +4,7 @@
 
 | Path | Purpose |
 |------|---------|
-| [`base/`](base/) | PyTorch classifier + tone generator (names without tier suffix). |
+| [`base/`](base/) | PyTorch classifier + tone generator (names without tier suffix) + **CPU HPAs** for each. |
 | [`overlays/staging`](overlays/staging/) | `*-staging` Deployments/Services; `DUMMY_MODE=true` for cheap integration. |
 | [`overlays/canary`](overlays/canary/) | `*-canary`; `DUMMY_MODE=false` for pre-prod validation. |
 | [`overlays/prod`](overlays/prod/) | `*-prod`; `DUMMY_MODE=false` for live traffic. |
@@ -24,6 +24,10 @@ kubectl apply -k k8s/inference/
 ```
 
 Same command is used by [`deploy_ml_workloads.yml`](../../infra/ansible/playbooks/deploy_ml_workloads.yml).
+
+## HorizontalPodAutoscaler (CPU)
+
+Base manifests include **`classifier-pytorch-hpa`** and **`tone-generator-hpa`**. Kustomize `nameSuffix` rewrites `scaleTargetRef` so each tier scales its own Deployment (`classifier-pytorch-staging` … `classifier-pytorch-prod`, same for `tone-generator-*`). **k3s** ships **metrics-server** by default; confirm `kubectl top pods -n ml-serving` works before expecting HPA status. Example: `kubectl get hpa -n ml-serving`.
 
 ## Design choices
 

@@ -7,7 +7,7 @@ This directory is the **configuration-as-code** counterpart to Terraform IaC.
 ## What this does
 
 - Installs a **single-node k3s** cluster on your Chameleon VM.
-- Deploys **shared platform services** (MLflow, MinIO, Prometheus, Grafana) with **persistent storage** where configured.
+- Deploys **shared platform services** (MLflow, MinIO, Prometheus, Grafana, Alertmanager) with **persistent storage** where configured.
 - Deploys **Zulip** on Kubernetes using the upstream Helm chart from [docker-zulip](https://github.com/zulip/docker-zulip).
 
 ## Prereqs on your laptop or jump host
@@ -56,7 +56,7 @@ terraform output -raw ansible_inventory_ini
 ansible-playbook -i inventory.ini playbooks/k3s_install.yml
 ```
 
-2) Deploy namespaces, MLflow, MinIO, and Prometheus/Grafana (`deploy_platform` creates `minio-root` in `ml-platform` and `grafana-admin` in `monitoring` if missing):
+2) Deploy namespaces, MLflow, MinIO, and Prometheus/Grafana/Alertmanager (`deploy_platform` creates `minio-root` in `ml-platform` and `grafana-admin` in `monitoring` if missing):
 
 ```bash
 ansible-playbook -i inventory.ini playbooks/deploy_platform.yml

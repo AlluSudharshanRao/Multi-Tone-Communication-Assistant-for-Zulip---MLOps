@@ -1,0 +1,19 @@
+# Generator is memory-heavy; keep maxReplicas modest on single-node clusters (scheduler may leave extra pods Pending).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: tone-generator-hpa
+spec:
+  minReplicas: 1
+  maxReplicas: 2
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: tone-generator
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65

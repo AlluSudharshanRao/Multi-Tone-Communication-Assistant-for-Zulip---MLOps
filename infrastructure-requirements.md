@@ -44,8 +44,9 @@ Requests and limits are defined in the repository paths indicated.
 | MinIO | `ml-platform` | 250 m | 1 | 512 Mi | 2 Gi | 20 Gi (`minio-data`) | `k8s/platform/minio/` |
 | Prometheus | `monitoring` | 200 m | 1 | 512 Mi | 2 Gi | 10 Gi (`prometheus-data`) | `k8s/platform/observability/` |
 | Grafana | `monitoring` | 100 m | 500 m | 256 Mi | 1 Gi | 5 Gi (`grafana-data`) | `k8s/platform/observability/` |
+| Alertmanager | `monitoring` | 25 m | 250 m | 64 Mi | 256 Mi | None (emptyDir) | `k8s/platform/observability/` |
 
-**Rationale:** Requests are set conservatively for co-location on a single-node cluster; limits bound peak consumption. MLflow and MinIO receive symmetric CPU and memory envelopes. Prometheus receives a higher ceiling for time-series retention and scraping; Grafana remains smaller (UI and metadata).
+**Rationale:** Requests are set conservatively for co-location on a single-node cluster; limits bound peak consumption. MLflow and MinIO receive symmetric CPU and memory envelopes. Prometheus receives a higher ceiling for time-series retention and scraping; Grafana remains smaller (UI and metadata). Alertmanager is lightweight (routing only; swap emptyDir for PVC if silencing state must survive restarts).
 
 **Measurement:** Declared values were verified against the node’s pod list (`kubectl describe node`). **Idle** samples from `kubectl top` fell well below limits for these workloads, consistent with limits functioning as upper bounds rather than steady-state demand.
 
