@@ -35,6 +35,13 @@ LATENCY_HIST = Histogram(
     "Classifier inference latency",
     buckets=[0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.5],
 )
+# Feedback signals emitted by the Zulip bridge when users react to tone suggestions.
+# thumbs_up / thumbs_down / selected / edited / ignored
+FEEDBACK_COUNT = Counter(
+    "classifier_feedback_total",
+    "User feedback signals for classifier predictions",
+    ["user_action"],
+)
 
 # ---------------------------------------------------------------------------
 # Pydantic schemas
@@ -133,6 +140,18 @@ def predict(request: ClassifierRequest):
         REQUEST_COUNT.labels(status="error").inc()
         logger.exception("Prediction error: %s", exc)
         raise HTTPException(status_code=500, detail="Inference error") from exc
+
+
+@app.post("/feedback")
+def classifier_feedback(payload: dict):
+    """
+    Record a user feedback signal for a previous /predict call.
+    Increments the Prometheus counter so Grafana can track approval rates.
+    Actual persistence is done by the Zulip bridge writing to MinIO.
+    """
+    action = str(payload.get("user_action", "unknown"))
+    FEEDBACK_COUNT.labels(user_action=action).inc()
+    return {"status": "ok"}
 
 
 @app.get("/metrics")

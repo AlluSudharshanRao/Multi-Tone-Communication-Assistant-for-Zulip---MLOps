@@ -11,3 +11,4 @@ resources:
   - data-generator-deployment.yaml
   - data-ingest-job.yaml
   - data-batch-job.yaml
+  - retrain-trigger-cronjob.yaml

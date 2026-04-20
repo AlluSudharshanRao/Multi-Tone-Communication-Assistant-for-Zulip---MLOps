@@ -35,6 +35,11 @@ LATENCY_HIST = Histogram(
     "Generator inference latency",
     buckets=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0, 1.5, 2.0],
 )
+FEEDBACK_COUNT = Counter(
+    "generator_feedback_total",
+    "User feedback signals for generator outputs",
+    ["user_action", "tone_shown"],
+)
 
 # ---------------------------------------------------------------------------
 # Pydantic schemas
@@ -146,6 +151,15 @@ async def generate(request: GenerateRequest):
         offensive_content_flagged=gen_result["offensive_content_flagged"],
         total_latency_ms=round(total_ms, 2),
     )
+
+
+@app.post("/feedback")
+async def generator_feedback(payload: dict):
+    """Record user feedback signal. Increments Prometheus counter for Grafana visibility."""
+    action = str(payload.get("user_action", "unknown"))
+    tone = str(payload.get("tone_shown", "unknown"))
+    FEEDBACK_COUNT.labels(user_action=action, tone_shown=tone).inc()
+    return {"status": "ok"}
 
 
 @app.get("/metrics")
