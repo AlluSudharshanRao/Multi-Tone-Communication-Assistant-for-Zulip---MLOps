@@ -8,8 +8,10 @@ app = FastAPI(title="Zulip Message Rewriter - Online Feature Service")
 
 BUCKET     = os.getenv("MINIO_BUCKET",     "zulip-rewriter")
 ENDPOINT   = os.getenv("MINIO_ENDPOINT",   "http://localhost:9000")
-ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
-SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "")
+SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "")
+if not ACCESS_KEY or not SECRET_KEY:
+    raise RuntimeError("MINIO_ACCESS_KEY and MINIO_SECRET_KEY must be set (injected from minio-root Secret in K8s)")
 
 s3 = boto3.client("s3", endpoint_url=ENDPOINT,
                   aws_access_key_id=ACCESS_KEY,
