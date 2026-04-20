@@ -1,9 +1,13 @@
 ---
 # Copies k8s/ to the VM; applies namespaces, MLflow, MinIO, and Prometheus/Grafana (monitoring).
-# Creates Secret grafana-admin in monitoring if missing (random password; retrieve with kubectl get secret -o jsonpath=...).
-# Creates Secret minio-root in ml-platform if missing (user minioadmin + random password).
+# Creates Secret minio-root in ml-platform using minio_root_password (see vars below).
+# Creates Secret grafana-admin in monitoring with a random password (retrieve via kubectl).
 # Expects k3s and ~/.kube/config from k3s_install. Repo path on VM: /opt/mlops_project.
+#
 # Run: ansible-playbook -i ../inventory.ini playbooks/deploy_platform.yml
+# Override password without editing this file:
+#   ansible-playbook ... -e minio_root_password=yourpassword
+# Or set MINIO_ROOT_PASSWORD in your shell before running.
 # Playbook order + dedupe policy: ../../ONE_PLATFORM_AND_CLEANUP.md
 - name: Deploy namespaces + platform services (MLflow, MinIO, observability)
   hosts: chameleon
@@ -12,6 +16,11 @@
   vars:
     kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
     repo_root: "/opt/mlops_project"
+    # MinIO root credentials — username is fixed; password can be overridden via:
+    #   -e minio_root_password=<value>  OR  env var MINIO_ROOT_PASSWORD
+    # Must match the MINIO_ROOT_PASSWORD set on the running MinIO Pod/deployment.
+    minio_root_user: "minioadmin"
+    minio_root_password: "{{ lookup('env', 'MINIO_ROOT_PASSWORD') | default('minio-password', true) }}"
   tasks:
     - name: Ensure git is installed
       ansible.builtin.package:
@@ -72,14 +81,15 @@
     - name: Ensure MinIO root secret exists (ml-platform namespace)
       ansible.builtin.shell: |
         set -e
-        if kubectl --kubeconfig {{ kubeconfig_path }} get secret minio-root -n ml-platform >/dev/null 2>&1; then
-          exit 0
-        fi
+        # Use --dry-run=client | apply so re-running updates the secret if the password changed.
         kubectl --kubeconfig {{ kubeconfig_path }} create secret generic minio-root -n ml-platform \
-          --from-literal=root-user=minioadmin \
-          --from-literal=root-password="$(openssl rand -base64 24)"
+          --from-literal=root-user={{ minio_root_user }} \
+          --from-literal=root-password={{ minio_root_password }} \
+          --dry-run=client -o yaml | \
+        kubectl --kubeconfig {{ kubeconfig_path }} apply -f -
       args:
         executable: /bin/bash
+      no_log: true
 
     - name: Apply MinIO kustomize
       ansible.builtin.command: >
