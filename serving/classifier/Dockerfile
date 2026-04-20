@@ -19,16 +19,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install core deps only (no torch/transformers in dummy mode)
+# Core HTTP stack + CPU PyTorch + HuggingFace (prod/canary use DUMMY_MODE=false).
 COPY requirements.txt .
-RUN pip install --no-cache-dir \
-    fastapi==0.111.0 \
-    "uvicorn[standard]==0.29.0" \
-    pydantic==2.7.1 \
-    numpy==1.26.4 \
-    prometheus-client==0.20.0
+RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py model.py model_onnx.py model_quantized.py ./
+RUN pip install --no-cache-dir torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir "transformers==4.40.0" "safetensors>=0.4.3"
+
+COPY app.py audit_log.py model.py model_onnx.py model_quantized.py ./
 
 # Non-root user for security
 RUN useradd -m -u 1000 appuser

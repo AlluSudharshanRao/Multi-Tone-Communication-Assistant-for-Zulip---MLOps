@@ -10,6 +10,11 @@ Real mode (DUMMY_MODE=false):
   a fine-tuned checkpoint.
 
 Switch:  DUMMY_MODE=false  MODEL_PATH=/mnt/model
+
+Automated handoff (optional):
+  Preferred: set CLASSIFIER_MODEL_URI=models:/<registered_name>@<alias>
+  Optional fallback: set MLFLOW_RUN_ID (+ MLFLOW_TRACKING_URI) to download
+  a run artifact folder. This removes manual unzip/copy from training to serving.
 """
 
 import os
@@ -17,13 +22,64 @@ import time
 import logging
 import random
 import numpy as np
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 LABELS = ["formal", "friendly", "neutral"]
 DUMMY_MODE = os.environ.get("DUMMY_MODE", "true").lower() != "false"
 MODEL_PATH = os.environ.get("MODEL_PATH", "distilbert-base-uncased")
+CLASSIFIER_MODEL_URI = os.environ.get("CLASSIFIER_MODEL_URI", "").strip()
+MLFLOW_RUN_ID = os.environ.get("MLFLOW_RUN_ID", "").strip()
+MLFLOW_ARTIFACT_PATH = os.environ.get("MLFLOW_ARTIFACT_PATH", "model").strip() or "model"
+MLFLOW_DOWNLOAD_DIR = os.environ.get("MLFLOW_DOWNLOAD_DIR", "/tmp/mlflow_artifacts").strip()
 MAX_LEN = 128
+
+
+def _resolve_model_path() -> str:
+    if not CLASSIFIER_MODEL_URI and not MLFLOW_RUN_ID:
+        return MODEL_PATH
+    try:
+        import mlflow
+        from mlflow.tracking import MlflowClient
+
+        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "").strip()
+        if tracking_uri:
+            mlflow.set_tracking_uri(tracking_uri)
+        target_dir = Path(MLFLOW_DOWNLOAD_DIR)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        if CLASSIFIER_MODEL_URI:
+            downloaded = mlflow.artifacts.download_artifacts(
+                artifact_uri=CLASSIFIER_MODEL_URI,
+                dst_path=str(target_dir),
+            )
+            logger.info(
+                "Downloaded classifier model via registry uri=%s -> %s",
+                CLASSIFIER_MODEL_URI,
+                downloaded,
+            )
+        else:
+            client = MlflowClient()
+            downloaded = client.download_artifacts(
+                run_id=MLFLOW_RUN_ID,
+                path=MLFLOW_ARTIFACT_PATH,
+                dst_path=str(target_dir),
+            )
+            logger.info(
+                "Downloaded classifier artifact from MLflow run=%s path=%s -> %s",
+                MLFLOW_RUN_ID,
+                MLFLOW_ARTIFACT_PATH,
+                downloaded,
+            )
+        return downloaded
+    except Exception as exc:
+        logger.exception(
+            "Failed to resolve classifier model from MLflow (model_uri=%s run_id=%s path=%s)",
+            CLASSIFIER_MODEL_URI,
+            MLFLOW_RUN_ID,
+            MLFLOW_ARTIFACT_PATH,
+        )
+        raise RuntimeError("Unable to resolve MODEL_PATH from MLflow") from exc
 
 
 class _DummyClassifier:
@@ -65,11 +121,12 @@ class _RealClassifier:
     def __init__(self):
         import torch
         from transformers import DistilBertTokenizerFast, DistilBertForSequenceClassification
-        logger.info("Loading tokenizer from %s", MODEL_PATH)
-        self.tokenizer = DistilBertTokenizerFast.from_pretrained(MODEL_PATH)
-        logger.info("Loading model from %s", MODEL_PATH)
+        resolved_path = _resolve_model_path()
+        logger.info("Loading tokenizer from %s", resolved_path)
+        self.tokenizer = DistilBertTokenizerFast.from_pretrained(resolved_path)
+        logger.info("Loading model from %s", resolved_path)
         self.model = DistilBertForSequenceClassification.from_pretrained(
-            MODEL_PATH, num_labels=3, ignore_mismatched_sizes=True
+            resolved_path, num_labels=3, ignore_mismatched_sizes=True
         )
         self.model.eval()
         self._torch = torch
