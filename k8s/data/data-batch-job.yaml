@@ -20,6 +20,8 @@ spec:
         role: data
     spec:
       restartPolicy: OnFailure
+      imagePullSecrets:
+        - name: ghcr-pull
       containers:
         - name: batch
           image: ghcr.io/allusudharshanrao/mlops-data-batch:latest
@@ -43,8 +45,8 @@ spec:
               value: "v1"
           resources:
             requests:
-              cpu: 250m
-              memory: 512Mi
+              cpu: 200m
+              memory: 384Mi
             limits:
               cpu: "2"
               memory: 4Gi

@@ -24,6 +24,8 @@ spec:
         prometheus.io/port: "8001"
         prometheus.io/path: "/metrics"
     spec:
+      imagePullSecrets:
+        - name: ghcr-pull
       containers:
         - name: classifier-quantized
           image: ghcr.io/allusudharshanrao/mlops-serving-classifier:latest
@@ -56,11 +58,11 @@ spec:
             periodSeconds: 20
           resources:
             requests:
-              cpu: "250m"
-              memory: "256Mi"
+              cpu: "200m"
+              memory: "192Mi"
             limits:
               cpu: "1"
-              memory: "512Mi"
+              memory: "384Mi"
 ---
 apiVersion: v1
 kind: Service

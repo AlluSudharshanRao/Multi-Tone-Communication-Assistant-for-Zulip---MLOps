@@ -26,6 +26,8 @@ spec:
         runAsUser: 65534
         runAsGroup: 65534
         fsGroup: 65534
+      imagePullSecrets:
+        - name: ghcr-pull
       containers:
         - name: zulip-bridge
           image: ghcr.io/allusudharshanrao/mlops-zulip-bridge:latest

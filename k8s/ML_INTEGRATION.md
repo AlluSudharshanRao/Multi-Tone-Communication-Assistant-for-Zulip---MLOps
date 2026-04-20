@@ -53,7 +53,7 @@ source .venv/bin/activate
 ansible-playbook -i inventory.ini playbooks/deploy_ml_workloads.yml
 ```
 
-To run the same steps manually on the VM, mirror the tasks in `infra/ansible/playbooks/deploy_ml_workloads.yml` (Secret copy + three `kubectl apply -k` commands).
+To run the same steps manually on the VM, mirror `infra/ansible/playbooks/deploy_ml_workloads.yml` (Secret copy + `kubectl apply -k` for `k8s/data/`, `k8s/inference/`, `k8s/integration/`, **`k8s/training/register-bundle/`**). Classifier/generator training Jobs: `kubectl apply -k k8s/training/`. Details: [`training/README.md`](training/README.md).
 
 ## 5. MinIO buckets
 

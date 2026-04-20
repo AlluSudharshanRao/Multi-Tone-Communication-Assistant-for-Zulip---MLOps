@@ -32,6 +32,38 @@ spec:
     spec:
       restartPolicy: OnFailure
       # runtimeClassName: nvidia   # Uncomment for GPU node
+      imagePullSecrets:
+        - name: ghcr-pull
+      initContainers:
+        - name: pull-datasets
+          image: minio/mc:RELEASE.2025-02-21T16-00-46Z
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MINIO_ENDPOINT
+              value: "http://minio.ml-platform.svc.cluster.local:9000"
+            - name: MINIO_BUCKET
+              value: "zulip-rewriter"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-user
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-password
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              mc alias set platform "$MINIO_ENDPOINT" "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
+              mc ls "platform/$MINIO_BUCKET" >/dev/null
+              mc cp --recursive "platform/$MINIO_BUCKET/datasets/" /data/ || true
+          volumeMounts:
+            - name: training-data
+              mountPath: /data
       containers:
         - name: generator-training
           image: ghcr.io/allusudharshanrao/mlops-training-generator:latest
@@ -69,8 +101,9 @@ spec:
           resources:
             # CPU-only baseline. Swap in GPU block below for Blazar reservation.
             requests:
-              cpu: "2"
-              memory: "8Gi"
+              cpu: "1"
+              # Low request helps scheduling on 32Gi nodes; limit still allows LLM fine-tune heap spikes.
+              memory: "2Gi"
             limits:
               cpu: "4"
               memory: "16Gi"

@@ -26,7 +26,7 @@ zulip:
       # Anyone who can reach the server may start org creation; turn off for locked-down servers.
       OPEN_REALM_CREATION = True
       # Product compose "Tone suggestions" (requires custom zulip-server image from fork; see integrations/zulip-server-mlops/)
-      # TONE_MLOPS_BRIDGE_URL = "http://zulip-bridge.ml-serving.svc.cluster.local:8090/generate"
+      TONE_MLOPS_BRIDGE_URL = "http://zulip-bridge.ml-serving.svc.cluster.local:8090/generate"
 
 # ClusterIP + Ingress (k3s default Traefik). OpenStack SG: TCP 80 + 443.
 service:
@@ -47,10 +47,11 @@ ingress:
         - zulip.129.114.27.192.nip.io
 
 # Main Zulip container (chart root key — not under zulip:). Sized from kubectl top (~4.3 GiB RSS light load; ~196 m CPU busier).
+# Requests lowered for small clusters; raise memory if you see OOMKill under real load.
 resources:
   requests:
     cpu: 500m
-    memory: 6Gi
+    memory: 5Gi
   limits:
     cpu: "2"
     memory: 8Gi
