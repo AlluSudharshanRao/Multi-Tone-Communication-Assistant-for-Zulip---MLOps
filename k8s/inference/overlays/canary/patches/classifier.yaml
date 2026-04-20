@@ -10,5 +10,7 @@ spec:
           env:
             - name: DUMMY_MODE
               value: "false"
+            - name: CLASSIFIER_MODEL_URI
+              value: "models:/tone-classifier@canary"
             - name: DEPLOYMENT_TIER
               value: "canary"

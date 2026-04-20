@@ -11,5 +11,7 @@ spec:
           env:
             - name: DUMMY_MODE
               value: "false"
+            - name: CLASSIFIER_MODEL_URI
+              value: "models:/tone-classifier@prod"
             - name: DEPLOYMENT_TIER
               value: "production"

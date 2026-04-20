@@ -1,0 +1,46 @@
+---
+# Registers latest successful training runs into MLflow Model Registry and updates aliases.
+# This wires "training → serving" without manually copying model artifacts.
+#
+# Run on-demand:
+#   kubectl delete job -n ml-training register-and-alias-latest --ignore-not-found
+#   kubectl apply -f k8s/training/register-and-alias-latest-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: register-and-alias-latest
+  namespace: ml-training
+  labels:
+    app: register-and-alias-latest
+    role: training
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: register-and-alias-latest
+        role: training
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: register
+          image: ghcr.io/allusudharshanrao/mlops-training-classifier:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "/app/register_and_alias_latest.py"]
+          args:
+            - "--classifier-experiment=teamchat_tone_clf"
+            - "--classifier-run-name=candidate_tone_distilbert"
+            - "--classifier-model-name=tone-classifier"
+            - "--classifier-artifact-path=model"
+            - "--generator-experiment=teamchat_tone_generator_llm"
+            - "--generator-run-name=smollm2_135m_lora_cpu"
+            - "--generator-model-name=tone-generator-lora"
+            - "--generator-artifact-path=lora_checkpoint"
+            - "--aliases=canary,prod"
+            # Keep gates modest; adjust upward once you have stable training data.
+            - "--min-classifier-f1-macro=0.70"
+            - "--min-classifier-worst-class-f1=0.55"
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: "http://mlflow.ml-platform.svc.cluster.local:5000"
