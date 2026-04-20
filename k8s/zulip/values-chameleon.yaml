@@ -95,7 +95,7 @@ postgresql:
 # Rebuild/push a new tag after server changes, bump tag here, redeploy.
 image:
   repository: ghcr.io/allusudharshanrao/zulip-server
-  tag: "mlops-zulip-11.6-edfbbb5"
+  tag: "mlops-zulip-11.6-2e74622"
   pullPolicy: Always
 
 # --- Smokescreen egress (required for compose "Tone suggestions") ---
