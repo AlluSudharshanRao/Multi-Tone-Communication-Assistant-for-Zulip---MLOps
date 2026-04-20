@@ -1,3 +1,7 @@
+# LOCAL DEVELOPMENT ONLY — credentials here are intentionally insecure defaults.
+# In Kubernetes (production), all credentials come from the minio-root Secret created
+# by infra/ansible/playbooks/deploy_platform.yml with a random password (openssl rand).
+# Never copy these values into K8s manifests or CI secrets.
 version: "3.9"
 services:
   minio:
