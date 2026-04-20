@@ -4,6 +4,7 @@ HTTP bridge: Zulip outgoing webhook / slash-command style payloads → tone gene
 - Validates optional ZULIP_WEBHOOK_SECRET against body.token (Zulip outgoing webhooks).
 - Returns Zulip-compatible JSON: {"content": "..."} for bot replies.
 - Rate limit: simple in-process limiter per client IP (demo-grade; use Redis in real prod).
+- POST /feedback: persists user thumbs-up/down + tone corrections to MinIO for retraining.
 """
 
 from __future__ import annotations
@@ -13,12 +14,18 @@ import logging
 import os
 import re
 import time
+import uuid
 from collections import deque
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, Literal
 
+import boto3
 import httpx
+from botocore.client import Config
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
+from pydantic import BaseModel, Field
 from starlette.responses import Response
 
 logging.basicConfig(level=logging.INFO)
@@ -30,6 +37,49 @@ MAX_MESSAGE_LEN = int(os.environ.get("MAX_MESSAGE_LEN", "2000"))
 MAX_BODY_BYTES = int(os.environ.get("MAX_BODY_BYTES", "65536"))
 RATE_PER_MINUTE = int(os.environ.get("RATE_PER_MINUTE", "60"))
 REDACT_LOGS = os.environ.get("REDACT_LOGS", "true").lower() in ("1", "true", "yes")
+
+# MinIO / S3 config for feedback persistence
+_MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "http://minio.ml-platform.svc.cluster.local:9000")
+_MINIO_BUCKET = os.environ.get("MINIO_BUCKET", "zulip-rewriter")
+_MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "")
+_MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "")
+
+# Prometheus feedback counters (visible in Grafana via /metrics)
+FEEDBACK_COUNTER = Counter(
+    "bridge_feedback_total",
+    "User feedback signals received",
+    ["user_action", "tone_shown"],
+)
+
+
+def _s3_client():
+    return boto3.client(
+        "s3",
+        endpoint_url=_MINIO_ENDPOINT,
+        aws_access_key_id=_MINIO_ACCESS_KEY,
+        aws_secret_access_key=_MINIO_SECRET_KEY,
+        verify=False,
+        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+    )
+
+
+def _write_feedback_to_minio(record: dict) -> None:
+    """Write one feedback JSON record to MinIO under feedback/YYYY-MM-DD/{uuid}.json."""
+    if not _MINIO_ACCESS_KEY:
+        logger.debug("MINIO_ACCESS_KEY not set — feedback not persisted")
+        return
+    try:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        key = f"feedback/{today}/{record['feedback_id']}.json"
+        _s3_client().put_object(
+            Bucket=_MINIO_BUCKET,
+            Key=key,
+            Body=json.dumps(record, ensure_ascii=False).encode(),
+            ContentType="application/json",
+        )
+        logger.info("feedback persisted key=%s", key)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("feedback MinIO write failed (non-fatal): %s", exc)
 
 app = FastAPI(title="Zulip tone bridge", version="1.0.0")
 
@@ -95,9 +145,69 @@ def _zulip_reply_markdown(gen_json: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Feedback schemas
+# ---------------------------------------------------------------------------
+
+class FeedbackRequest(BaseModel):
+    message_id: str = Field(..., description="message_id from the /generate response")
+    tone_shown: str = Field(..., description="Which tone variant was presented (formal/friendly/neutral)")
+    user_action: Literal["thumbs_up", "thumbs_down", "selected", "edited", "ignored"] = Field(
+        ..., description="Signal: thumbs_up=positive, thumbs_down=negative, selected=user picked this tone, edited=user modified it, ignored=user discarded"
+    )
+    correct_tone: str | None = Field(None, description="If thumbs_down: which tone the user preferred")
+    preferred_text: str | None = Field(None, description="If edited: the user's rewritten text (max 2000 chars)")
+
+class FeedbackResponse(BaseModel):
+    status: str
+    feedback_id: str
+    message_id: str
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/feedback", response_model=FeedbackResponse)
+def feedback(req: FeedbackRequest) -> FeedbackResponse:
+    """
+    Persist user feedback for a previous /generate call.
+    Keyed by message_id so it can be joined with audit logs for retraining.
+
+    Zulip bot flow:
+      1. Bot calls /zulip/webhook → gets tone suggestions → posts them with reactions.
+      2. User reacts with 👍/👎 (or clicks a tone button) → bot calls POST /feedback.
+      3. Feedback lands in MinIO feedback/YYYY-MM-DD/ → batch pipeline joins it with
+         classifier audit logs → training dataset for next retrain.
+    """
+    fid = str(uuid.uuid4())
+    record = {
+        "feedback_id": fid,
+        "message_id": req.message_id,
+        "tone_shown": req.tone_shown,
+        "user_action": req.user_action,
+        "correct_tone": req.correct_tone,
+        "preferred_text": (req.preferred_text or "")[:2000] if req.preferred_text else None,
+        "source": "zulip-bridge",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    FEEDBACK_COUNTER.labels(user_action=req.user_action, tone_shown=req.tone_shown).inc()
+    _write_feedback_to_minio(record)
+    logger.info(
+        "feedback id=%s message_id=%s action=%s tone=%s correct=%s",
+        fid, req.message_id, req.user_action, req.tone_shown, req.correct_tone,
+    )
+    return FeedbackResponse(status="ok", feedback_id=fid, message_id=req.message_id)
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.post("/zulip/webhook")

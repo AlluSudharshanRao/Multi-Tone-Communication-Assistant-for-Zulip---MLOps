@@ -1,0 +1,210 @@
+# Checks MinIO daily for unprocessed retrain trigger records written by
+# data/retrain_trigger/retrain_trigger.py (running as k8s/data/retrain-trigger-cronjob.yaml).
+#
+# If an unprocessed trigger is found:
+#   1. Applies batch data pipeline job (to rebuild training dataset with latest feedback).
+#   2. Deletes + re-applies classifier and generator training jobs.
+#   3. Waits for both training jobs to complete (up to 3 hours each).
+#   4. Applies register-bundle (MLflow model registration + alias update).
+#   5. Marks trigger record as processed in MinIO.
+#
+# Promotion (canary → prod) is intentionally NOT automatic — use promote-inference.yml
+# after reviewing the MLflow run metrics (F1, latency, safety).
+#
+# Schedule: daily at 03:00 UTC (one hour after retrain_trigger CronJob at 02:00).
+# Can also be triggered manually (workflow_dispatch) to reprocess a trigger.
+#
+# Requires repository secrets:
+#   KUBE_CONFIG_B64    — base64 kubeconfig (rights to ml-data + ml-training namespaces)
+#   MINIO_ACCESS_KEY   — MinIO root user
+#   MINIO_SECRET_KEY   — MinIO root password
+name: Retrain on trigger
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Force retrain even if no trigger record found"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  check-and-retrain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubectl + Python deps
+        run: |
+          curl -sSL https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl -o /usr/local/bin/kubectl
+          chmod +x /usr/local/bin/kubectl
+          pip install boto3==1.34.69 --quiet
+
+      - name: Write kubeconfig
+        env:
+          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KUBE_CONFIG_B64:-}" ]; then
+            echo "::error::Missing KUBE_CONFIG_B64 secret."
+            exit 1
+          fi
+          echo "$KUBE_CONFIG_B64" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+          chmod 600 "$RUNNER_TEMP/kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
+
+      - name: Check for unprocessed retrain trigger in MinIO
+        id: trigger_check
+        env:
+          MINIO_ACCESS_KEY: ${{ secrets.MINIO_ACCESS_KEY }}
+          MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
+          FORCE: ${{ inputs.force || 'false' }}
+        run: |
+          python3 - <<'EOF'
+          import boto3, json, os, sys
+          from botocore.client import Config
+          from datetime import datetime, timezone, timedelta
+
+          if os.environ.get("FORCE") == "true":
+              print("FORCE=true — skipping trigger check")
+              print("trigger_found=true")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write("trigger_found=true\n")
+                  f.write("trigger_key=\n")
+              sys.exit(0)
+
+          s3 = boto3.client(
+              "s3",
+              endpoint_url="http://minio.ml-platform.svc.cluster.local:9000",
+              aws_access_key_id=os.environ["MINIO_ACCESS_KEY"],
+              aws_secret_access_key=os.environ["MINIO_SECRET_KEY"],
+              verify=False,
+              config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+          )
+          bucket = "zulip-rewriter"
+          cutoff = (datetime.now(timezone.utc) - timedelta(days=2)).strftime("%Y-%m-%d")
+          paginator = s3.get_paginator("list_objects_v2")
+          trigger_key = None
+          for page in paginator.paginate(Bucket=bucket, Prefix="triggers/"):
+              for obj in page.get("Contents", []):
+                  key = obj["Key"]
+                  if not key.endswith(".json") or "last_retrain" in key:
+                      continue
+                  parts = key.split("/")
+                  date_dir = parts[1] if len(parts) > 1 else ""
+                  if date_dir < cutoff:
+                      continue
+                  rec = json.loads(s3.get_object(Bucket=bucket, Key=key)["Body"].read())
+                  if not rec.get("processed", False):
+                      trigger_key = key
+                      break
+              if trigger_key:
+                  break
+
+          found = trigger_key is not None
+          print(f"trigger_found={found}, trigger_key={trigger_key}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"trigger_found={'true' if found else 'false'}\n")
+              f.write(f"trigger_key={trigger_key or ''}\n")
+          EOF
+
+      - name: Skip if no trigger
+        if: steps.trigger_check.outputs.trigger_found != 'true'
+        run: echo "No unprocessed retrain trigger found — nothing to do."
+
+      - name: Run batch data pipeline (rebuild training dataset with latest feedback)
+        if: steps.trigger_check.outputs.trigger_found == 'true'
+        run: |
+          set -euo pipefail
+          kubectl delete job -n ml-data data-batch --ignore-not-found
+          kubectl apply -f k8s/data/data-batch-job.yaml
+          kubectl wait --for=condition=complete job/data-batch -n ml-data --timeout=1800s
+          echo "Batch pipeline complete."
+
+      - name: Re-run classifier training job
+        if: steps.trigger_check.outputs.trigger_found == 'true'
+        run: |
+          set -euo pipefail
+          kubectl delete job -n ml-training classifier-training --ignore-not-found
+          kubectl apply -f k8s/training/classifier-training-job.yaml
+          echo "Classifier training job submitted."
+
+      - name: Re-run generator training job
+        if: steps.trigger_check.outputs.trigger_found == 'true'
+        run: |
+          set -euo pipefail
+          kubectl delete job -n ml-training generator-training --ignore-not-found
+          kubectl apply -f k8s/training/generator-training-job.yaml
+          echo "Generator training job submitted."
+
+      - name: Wait for classifier training to finish
+        if: steps.trigger_check.outputs.trigger_found == 'true'
+        run: |
+          kubectl wait --for=condition=complete job/classifier-training \
+            -n ml-training --timeout=10800s
+          echo "Classifier training finished."
+
+      - name: Wait for generator training to finish
+        if: steps.trigger_check.outputs.trigger_found == 'true'
+        run: |
+          kubectl wait --for=condition=complete job/generator-training \
+            -n ml-training --timeout=10800s
+          echo "Generator training finished."
+
+      - name: Register + alias latest models in MLflow
+        if: steps.trigger_check.outputs.trigger_found == 'true'
+        run: |
+          set -euo pipefail
+          kubectl delete job -n ml-training register-and-alias-latest --ignore-not-found
+          kubectl apply -k k8s/training/register-bundle/
+          kubectl wait --for=condition=complete job/register-and-alias-latest \
+            -n ml-training --timeout=600s
+          echo "Models registered and aliases updated."
+
+      - name: Mark trigger record as processed in MinIO
+        if: steps.trigger_check.outputs.trigger_found == 'true'
+        env:
+          MINIO_ACCESS_KEY: ${{ secrets.MINIO_ACCESS_KEY }}
+          MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
+          TRIGGER_KEY: ${{ steps.trigger_check.outputs.trigger_key }}
+        run: |
+          python3 - <<'EOF'
+          import boto3, json, os
+          from botocore.client import Config
+          from datetime import datetime, timezone
+
+          key = os.environ.get("TRIGGER_KEY", "")
+          if not key:
+              print("No trigger key to mark — skipping.")
+              exit(0)
+
+          s3 = boto3.client(
+              "s3",
+              endpoint_url="http://minio.ml-platform.svc.cluster.local:9000",
+              aws_access_key_id=os.environ["MINIO_ACCESS_KEY"],
+              aws_secret_access_key=os.environ["MINIO_SECRET_KEY"],
+              verify=False,
+              config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+          )
+          bucket = "zulip-rewriter"
+          rec = json.loads(s3.get_object(Bucket=bucket, Key=key)["Body"].read())
+          rec["processed"] = True
+          rec["processed_at"] = datetime.now(timezone.utc).isoformat()
+          rec["processed_by"] = "retrain-on-trigger GitHub Actions"
+          s3.put_object(Bucket=bucket, Key=key,
+                        Body=json.dumps(rec, indent=2).encode(),
+                        ContentType="application/json")
+          print(f"Marked {key} as processed.")
+          EOF
+
+      - name: Print training pod status (diagnostics)
+        if: always() && steps.trigger_check.outputs.trigger_found == 'true'
+        run: |
+          kubectl get pods -n ml-training -o wide || true
+          kubectl get events -n ml-training --sort-by='.lastTimestamp' \
+            --field-selector reason=Failed 2>/dev/null | tail -20 || true
