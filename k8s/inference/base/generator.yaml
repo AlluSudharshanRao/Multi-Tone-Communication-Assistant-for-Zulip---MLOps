@@ -1,0 +1,80 @@
+# Tone generator — tier overlays patch CLASSIFIER_URL and DUMMY_MODE.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tone-generator
+  labels:
+    app: tone-generator
+    role: serving
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tone-generator
+  template:
+    metadata:
+      labels:
+        app: tone-generator
+        role: serving
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8010"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: tone-generator
+          image: ghcr.io/allusudharshanrao/mlops-serving-generator:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8010
+              name: http
+          env:
+            - name: DUMMY_MODE
+              value: "true"
+            - name: GENERATOR_BACKEND
+              value: "seq2seq"
+            - name: MODEL_NAME
+              value: "google/flan-t5-base"
+            - name: PEFT_MODEL_PATH
+              value: ""
+            - name: CLASSIFIER_URL
+              value: "http://classifier-pytorch:8001"
+            - name: LATENCY_BUDGET_MS
+              value: "600"
+            - name: MLFLOW_TRACKING_URI
+              value: "http://mlflow.ml-platform.svc.cluster.local:5000"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tone-generator
+  labels:
+    app: tone-generator
+spec:
+  type: ClusterIP
+  selector:
+    app: tone-generator
+  ports:
+    - name: http
+      port: 8010
+      targetPort: http

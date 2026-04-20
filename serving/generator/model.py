@@ -26,7 +26,6 @@ import os
 import random
 import re
 import time
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +33,6 @@ TONES = ["formal", "friendly", "neutral"]
 DUMMY_MODE = os.environ.get("DUMMY_MODE", "true").lower() != "false"
 MODEL_NAME = os.environ.get("MODEL_NAME", "google/flan-t5-base")
 PEFT_MODEL_PATH = os.environ.get("PEFT_MODEL_PATH", "").strip()
-GENERATOR_PEFT_MODEL_URI = os.environ.get("GENERATOR_PEFT_MODEL_URI", "").strip()
-PEFT_MLFLOW_RUN_ID = os.environ.get("PEFT_MLFLOW_RUN_ID", "").strip()
-PEFT_MLFLOW_ARTIFACT_PATH = os.environ.get("PEFT_MLFLOW_ARTIFACT_PATH", "lora_checkpoint").strip() or "lora_checkpoint"
-MLFLOW_DOWNLOAD_DIR = os.environ.get("MLFLOW_DOWNLOAD_DIR", "/tmp/mlflow_artifacts").strip()
 
 # Defaults aligned with training_proj15-main/training/configs/llm_generator_small.yaml
 DEFAULT_GEN_SYSTEM = (
@@ -56,59 +51,11 @@ MAX_NEW_TOKENS_CAUSAL = int(os.environ.get("MAX_NEW_TOKENS_CAUSAL", "128"))
 TRUST_REMOTE_CODE = os.environ.get("TRUST_REMOTE_CODE", "false").lower() == "true"
 
 
-def _resolve_peft_model_path() -> str:
-    if PEFT_MODEL_PATH:
-        return PEFT_MODEL_PATH
-    if not GENERATOR_PEFT_MODEL_URI and not PEFT_MLFLOW_RUN_ID:
-        return ""
-    try:
-        import mlflow
-        from mlflow.tracking import MlflowClient
-
-        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "").strip()
-        if tracking_uri:
-            mlflow.set_tracking_uri(tracking_uri)
-        target_dir = Path(MLFLOW_DOWNLOAD_DIR)
-        target_dir.mkdir(parents=True, exist_ok=True)
-        if GENERATOR_PEFT_MODEL_URI:
-            downloaded = mlflow.artifacts.download_artifacts(
-                artifact_uri=GENERATOR_PEFT_MODEL_URI,
-                dst_path=str(target_dir),
-            )
-            logger.info(
-                "Downloaded LoRA adapter via registry uri=%s -> %s",
-                GENERATOR_PEFT_MODEL_URI,
-                downloaded,
-            )
-        else:
-            client = MlflowClient()
-            downloaded = client.download_artifacts(
-                run_id=PEFT_MLFLOW_RUN_ID,
-                path=PEFT_MLFLOW_ARTIFACT_PATH,
-                dst_path=str(target_dir),
-            )
-            logger.info(
-                "Downloaded LoRA adapter from MLflow run=%s path=%s -> %s",
-                PEFT_MLFLOW_RUN_ID,
-                PEFT_MLFLOW_ARTIFACT_PATH,
-                downloaded,
-            )
-        return downloaded
-    except Exception as exc:
-        logger.exception(
-            "Failed to resolve LoRA adapter from MLflow (model_uri=%s run_id=%s path=%s)",
-            GENERATOR_PEFT_MODEL_URI,
-            PEFT_MLFLOW_RUN_ID,
-            PEFT_MLFLOW_ARTIFACT_PATH,
-        )
-        raise RuntimeError("Unable to resolve PEFT model path from MLflow") from exc
-
-
 def _generator_backend() -> str:
     explicit = os.environ.get("GENERATOR_BACKEND", "").strip().lower()
     if explicit in ("seq2seq", "causal"):
         return explicit
-    if PEFT_MODEL_PATH or GENERATOR_PEFT_MODEL_URI:
+    if PEFT_MODEL_PATH:
         return "causal"
     return "seq2seq"
 
@@ -284,14 +231,13 @@ class _RealCausalGenerator:
         from transformers import AutoModelForCausalLM, AutoTokenizer
         from better_profanity import profanity
 
-        resolved_peft_path = _resolve_peft_model_path()
         self._device = "cuda" if torch.cuda.is_available() else "cpu"
         dtype = torch.float16 if self._device == "cuda" else torch.float32
 
         logger.info(
             "Loading causal generator: base=%s peft=%s on %s",
             MODEL_NAME,
-            resolved_peft_path or "(none — full weights at MODEL_NAME)",
+            PEFT_MODEL_PATH or "(none — full weights at MODEL_NAME)",
             self._device,
         )
 
@@ -308,8 +254,8 @@ class _RealCausalGenerator:
             trust_remote_code=TRUST_REMOTE_CODE,
             low_cpu_mem_usage=True,
         )
-        if resolved_peft_path:
-            self._model = PeftModel.from_pretrained(base, resolved_peft_path)
+        if PEFT_MODEL_PATH:
+            self._model = PeftModel.from_pretrained(base, PEFT_MODEL_PATH)
         else:
             self._model = base
         self._model.to(self._device)
@@ -374,7 +320,7 @@ class ToneGenerator:
             logger.info(
                 "Generator starting in REAL mode — causal LM (MODEL_NAME=%s, PEFT_MODEL_PATH=%r)",
                 MODEL_NAME,
-                PEFT_MODEL_PATH or GENERATOR_PEFT_MODEL_URI or PEFT_MLFLOW_RUN_ID or "",
+                PEFT_MODEL_PATH or "",
             )
             return _RealCausalGenerator()
 

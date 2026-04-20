@@ -29,10 +29,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Core API deps + optional torch/transformers/peft for DUMMY_MODE=false
-COPY requirements.txt ./
 COPY requirements-llm.txt ./
 ARG INSTALL_LLM_DEPS=true
-RUN pip install --no-cache-dir -r requirements.txt \
+RUN pip install --no-cache-dir \
+    fastapi==0.111.0 \
+    "uvicorn[standard]==0.29.0" \
+    pydantic==2.7.1 \
+    numpy==1.26.4 \
+    prometheus-client==0.20.0 \
+    httpx==0.27.0 \
     && if [ "$INSTALL_LLM_DEPS" = "true" ]; then \
       pip install --no-cache-dir -r requirements-llm.txt; \
     fi

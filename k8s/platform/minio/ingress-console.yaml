@@ -1,0 +1,26 @@
+# MinIO web console. Separate host avoids path conflicts with S3 API on port 9000.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minio-console
+  namespace: ml-platform
+  labels:
+    app: minio
+spec:
+  ingressClassName: traefik
+  tls:
+    - secretName: chameleon-nip-tls
+      hosts:
+        - minio-console.129.114.27.192.nip.io
+  rules:
+    - host: minio-console.129.114.27.192.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: minio
+                port:
+                  number: 9001

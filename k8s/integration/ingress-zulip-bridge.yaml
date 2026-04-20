@@ -1,0 +1,27 @@
+# Optional: public HTTPS for Zulip → bridge (replace FLOATING_IP_PLACEHOLDER).
+# TLS: copy chameleon-nip-tls into namespace ml-serving or create a cert for these hosts.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: zulip-bridge
+  namespace: ml-serving
+  labels:
+    app: zulip-bridge
+spec:
+  ingressClassName: traefik
+  tls:
+    - secretName: chameleon-nip-tls
+      hosts:
+        - zulip-bridge.FLOATING_IP_PLACEHOLDER.nip.io
+  rules:
+    - host: zulip-bridge.FLOATING_IP_PLACEHOLDER.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: zulip-bridge
+                port:
+                  number: 8090

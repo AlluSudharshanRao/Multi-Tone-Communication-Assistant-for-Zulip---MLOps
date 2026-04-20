@@ -11,24 +11,6 @@ docker compose up -d classifier-pytorch generator
 Benchmarks and smoke tests live under `evaluate/` and `scripts/`.
 
 - **Zulip / bot handoff:** [INTEGRATION_FOR_ZULIP.md](./INTEGRATION_FOR_ZULIP.md) — URLs, timeouts, curl examples.
-- **Training -> serving promotion:** `scripts/example_promote_digest.sh` accepts MLflow Registry model URIs (aliases like `@prod`) and updates deployments so artifacts are pulled automatically at startup.
-
-## Training to serving handoff (MLflow)
-
-Runtime supports automatic artifact download from MLflow:
-
-- Classifier:
-  - `DUMMY_MODE=false`
-  - `CLASSIFIER_MODEL_URI=models:/tone-classifier@prod` (preferred)
-  - fallback: `MLFLOW_RUN_ID=<distilbert_run_id>` + `MLFLOW_ARTIFACT_PATH=model`
-- Generator (SmolLM2 LoRA):
-  - `DUMMY_MODE=false`
-  - `GENERATOR_BACKEND=causal`
-  - `MODEL_NAME=HuggingFaceTB/SmolLM2-135M-Instruct`
-  - `GENERATOR_PEFT_MODEL_URI=models:/tone-generator-lora@prod` (preferred)
-  - fallback: `PEFT_MLFLOW_RUN_ID=<lora_run_id>` + `PEFT_MLFLOW_ARTIFACT_PATH=lora_checkpoint`
-
-Both services read `MLFLOW_TRACKING_URI` from env.
 
 ## Rubric / ops (serving-owned)
 

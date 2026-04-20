@@ -1,0 +1,6 @@
+# Real inference (DUMMY_MODE=false): seq2seq (Flan-T5) or causal + LoRA (training_proj15 train_llm.py)
+torch==2.2.2
+transformers==4.40.0
+accelerate==0.29.3
+peft==0.11.1
+better-profanity==0.7.0

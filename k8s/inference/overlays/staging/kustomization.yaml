@@ -1,0 +1,16 @@
+# Staging: fast feedback, dummy mode OK, low blast radius.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ml-serving
+nameSuffix: -staging
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: tone-assistant
+      app.kubernetes.io/component: inference
+      tier: staging
+    includeSelectors: true
+resources:
+  - ../../base
+patches:
+  - path: patches/classifier.yaml
+  - path: patches/generator.yaml

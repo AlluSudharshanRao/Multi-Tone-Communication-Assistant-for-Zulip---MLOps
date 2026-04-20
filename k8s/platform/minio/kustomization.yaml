@@ -1,0 +1,10 @@
+# MinIO: S3 API + console in ml-platform (PVC, Secret minio-root from Ansible).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ml-platform
+resources:
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress-api.yaml
+  - ingress-console.yaml

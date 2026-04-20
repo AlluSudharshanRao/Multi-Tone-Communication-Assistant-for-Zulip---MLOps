@@ -1,3 +1,33 @@
+# Course / personal documentation (entire tree local only — not versioned)
+Docs/
+proj_docs/
+
+# Secrets and local env (never commit)
+.env
+.env.*
+!.env.example
+*.pem
+*-kubeconfig
+kubeconfig
+inventory.ini
+values-secret.yaml
+**/values-secret.yaml
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+crash.log
+terraform.tfvars
+**/terraform.tfvars
+# Local OpenStack client config (often contains application_credential_secret)
+clouds.yaml
+**/clouds.yaml
+
+# Vendored upstream clones (optional local copies)
+vendor/docker-zulip/
+
 # OS metadata
 *.Zone.Identifier
 .DS_Store
@@ -20,12 +50,17 @@ __pycache__/
 *.egg-info/
 dist/
 build/
-.env
-.venv/
 venv/
+.venv/
+.venv-ans/
+**/.venv-openstack/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# ML / tooling
+.pytest_cache/
+.mlflow/
 
 # IDE
 .vscode/
@@ -33,3 +68,6 @@ venv/
 
 # Docker
 *.log
+
+/tmp/
+*.parquet

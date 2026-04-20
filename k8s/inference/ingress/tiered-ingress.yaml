@@ -1,0 +1,48 @@
+# Traefik Ingress for tone-generator per tier. Replace FLOATING_IP_PLACEHOLDER with your FIP
+# (same pattern as k8s/platform/mlflow/ingress.yaml), then apply this bundle separately.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tone-generator-tiered
+  labels:
+    app: tone-generator
+spec:
+  ingressClassName: traefik
+  tls:
+    - secretName: chameleon-nip-tls
+      hosts:
+        - tone-api-staging.FLOATING_IP_PLACEHOLDER.nip.io
+        - tone-api-canary.FLOATING_IP_PLACEHOLDER.nip.io
+        - tone-api-prod.FLOATING_IP_PLACEHOLDER.nip.io
+  rules:
+    - host: tone-api-staging.FLOATING_IP_PLACEHOLDER.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tone-generator-staging
+                port:
+                  number: 8010
+    - host: tone-api-canary.FLOATING_IP_PLACEHOLDER.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tone-generator-canary
+                port:
+                  number: 8010
+    - host: tone-api-prod.FLOATING_IP_PLACEHOLDER.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tone-generator-prod
+                port:
+                  number: 8010
