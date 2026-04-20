@@ -113,7 +113,7 @@ Serving sits in the middle of the ML path:
        → [User feedback] → future retrain (training/data)
 ```
 
-**Serving responsibilities:** image build, runtime env, health, `/metrics`, smoke contracts, **SLO-oriented alert expressions** (as reference in `serving/alerts/` for DevOps to merge into cluster Prometheus if agreed), and this runbook.
+**Serving responsibilities:** image build, runtime env, health, `/metrics`, smoke contracts, **SLO-oriented alert expressions** (canonical copy in cluster `k8s/platform/observability/configmap-prometheus.yaml`; `serving/alerts/` stays the reference for edits), and this runbook.
 
 **Not serving:** Terraform, cluster install, MinIO bucket creation, training jobs, Zulip Helm values, **Grafana dashboard JSON in a separate tree** (use team Grafana only).
 
@@ -124,7 +124,7 @@ Serving sits in the middle of the ML path:
 | Path | Purpose |
 |------|---------|
 | `prometheus.yml` | Optional: scrape classifier + generator when using **compose** Prometheus only |
-| `alerts/serving.rules.yml` | **Reference** alert rules — ask DevOps to merge into [team Prometheus](https://prometheus.129.114.27.192.nip.io/) config; not loaded by compose by default |
+| `alerts/serving.rules.yml` | **Reference** alert rules (mirrored in team Prometheus ConfigMap); not loaded by compose by default |
 | `INTEGRATION_FOR_ZULIP.md` | Curl examples, timeouts, URLs for bot / webhook owner |
 | `classifier/audit_log.py`, `generator/audit_log.py` | Optional `SERVING_AUDIT_LOG` JSON lines (low-PII) |
 | `scripts/smoke_predict_generate.sh` | Contract smoke after deploy (checks HTTP status) |

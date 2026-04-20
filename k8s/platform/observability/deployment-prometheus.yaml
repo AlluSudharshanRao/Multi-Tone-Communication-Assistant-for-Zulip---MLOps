@@ -34,8 +34,8 @@ spec:
               name: http
           volumeMounts:
             - name: config
-              mountPath: /etc/prometheus/prometheus.yml
-              subPath: prometheus.yml
+              mountPath: /etc/prometheus
+              readOnly: true
             - name: data
               mountPath: /prometheus
           resources:
