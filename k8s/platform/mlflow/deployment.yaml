@@ -1,4 +1,7 @@
 # MLflow tracking server (shared experiment UI + SQLite backend on PVC).
+# Artifacts use MinIO (S3) so any pod (e.g. classifier in ml-serving) can download_model
+# via the tracking API — local /mlflow/data/artifacts breaks cross-namespace serving.
+# After switching artifact root, re-run training + register Job so new versions use s3:// paths.
 # Image pin: align with course/lab expectations; bump only after smoke-testing.
 # Apply: kubectl apply -k k8s/platform/mlflow/ (or Ansible deploy_platform).
 ---
@@ -31,7 +34,26 @@ spec:
             - --port=5000
             # SQLite on PVC — sufficient for class scale; use Postgres for multi-replica.
             - --backend-store-uri=sqlite:////mlflow/data/mlflow.db
-            - --default-artifact-root=/mlflow/data/artifacts
+            # Same bucket as data/training stack; prefix isolates MLflow blobs (MinIO auto-creates keys).
+            - --default-artifact-root=s3://zulip-rewriter/mlflow-artifacts/
+          # boto3/MLflow use AWS_* names for any S3 API — values are MinIO keys; endpoint is in-cluster MinIO, not AWS.
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-user
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-password
+            - name: MLFLOW_S3_ENDPOINT_URL
+              value: "http://minio.ml-platform.svc.cluster.local:9000"
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"
+            - name: AWS_S3_FORCE_PATH_STYLE
+              value: "true"
           ports:
             - containerPort: 5000
               name: http

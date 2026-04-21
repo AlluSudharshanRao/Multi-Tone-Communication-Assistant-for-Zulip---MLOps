@@ -19,6 +19,8 @@
 
 ## Apply
 
+**Prerequisite:** `Secret/minio-root` must exist in `ml-serving` (same keys as `ml-platform`) so workloads can read MLflow artifacts from MinIO. Ansible `deploy_ml_workloads` copies it; otherwise: `kubectl get secret minio-root -n ml-platform -o json | …` rewrite `namespace` to `ml-serving` and `kubectl apply -f -`.
+
 ```bash
 kubectl apply -k k8s/inference/
 ```
