@@ -41,5 +41,20 @@ spec:
             - -c
             - |
               set -eu
+              # Wait for MinIO to be reachable before issuing mc commands (up to 2 min).
+              # Uses the built-in /minio/health/ready liveness endpoint via wget (busybox).
+              TRIES=0
+              MAX=24
+              until wget -q --spider --timeout=5 "${MINIO_ENDPOINT}/minio/health/ready" 2>/dev/null; do
+                TRIES=$((TRIES+1))
+                if [ "$TRIES" -ge "$MAX" ]; then
+                  echo "ERROR: MinIO at $MINIO_ENDPOINT not healthy after $((MAX*5))s — aborting"
+                  exit 1
+                fi
+                echo "MinIO not ready (attempt $TRIES/$MAX), sleeping 5s..."
+                sleep 5
+              done
+              echo "MinIO healthy. Setting alias and creating bucket..."
               mc alias set platform "$MINIO_ENDPOINT" "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
               mc mb --ignore-existing "platform/$MINIO_BUCKET"
+              echo "Bucket $MINIO_BUCKET ready."

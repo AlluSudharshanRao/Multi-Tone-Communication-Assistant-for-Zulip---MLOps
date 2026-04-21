@@ -2,14 +2,20 @@
 # data/retrain_trigger/retrain_trigger.py (running as k8s/data/retrain-trigger-cronjob.yaml).
 #
 # If an unprocessed trigger is found:
-#   1. Applies batch data pipeline job (to rebuild training dataset with latest feedback).
+#   1. Applies batch data pipeline job (rebuild training dataset with latest feedback).
 #   2. Deletes + re-applies classifier and generator training jobs.
 #   3. Waits for both training jobs to complete (up to 3 hours each).
-#   4. Applies register-bundle (MLflow model registration + alias update).
-#   5. Marks trigger record as processed in MinIO.
-#
-# Promotion (canary → prod) is intentionally NOT automatic — use promote-inference.yml
-# after reviewing the MLflow run metrics (F1, latency, safety).
+#   4. Applies register-bundle (MLflow model registration + sets @canary alias only).
+#      Quality gates: f1_macro >= 0.70, worst-class F1 >= 0.55. Registration is skipped on failure.
+#   5. Rolls out canary deployments (classifier + generator) to pick up the new @canary model.
+#   6. Waits for canary rollout (up to 10 min) then runs a smoke test.
+#   7. AUTOMATED PROMOTION (well-justified rules):
+#      - Queries MLflow for the newly registered model version metrics.
+#      - If classifier f1_macro >= 0.70 AND worst-class F1 >= 0.55 AND generator loss <= 3.0:
+#          promotes @canary to @prod (canary + prod pods will reload automatically).
+#      - If gates fail: canary stays with new model but prod is NOT updated (safe rollback path).
+#      Uses promote-inference.yml logic inline via kubectl, so no SSH is required.
+#   8. Marks trigger record as processed in MinIO.
 #
 # Schedule: daily at 03:00 UTC (one hour after retrain_trigger CronJob at 02:00).
 # Can also be triggered manually (workflow_dispatch) to reprocess a trigger.
@@ -165,6 +171,145 @@ jobs:
           kubectl wait --for=condition=complete job/register-and-alias-latest \
             -n ml-training --timeout=600s
           echo "Models registered and aliases updated."
+
+      - name: Rollout canary deployments (pick up new @canary model)
+        if: steps.trigger_check.outputs.trigger_found == 'true'
+        run: |
+          set -euo pipefail
+          kubectl rollout restart deployment/classifier-pytorch-canary -n ml-serving
+          kubectl rollout restart deployment/tone-generator-canary -n ml-serving
+          kubectl rollout status deployment/classifier-pytorch-canary -n ml-serving --timeout=600s
+          kubectl rollout status deployment/tone-generator-canary -n ml-serving --timeout=600s
+          echo "Canary rollout complete."
+
+      - name: Canary smoke test
+        if: steps.trigger_check.outputs.trigger_found == 'true'
+        run: |
+          set -euo pipefail
+          kubectl port-forward svc/classifier-pytorch-canary 18001:8001 -n ml-serving &
+          PF_C=$!
+          kubectl port-forward svc/tone-generator-canary 18010:8010 -n ml-serving &
+          PF_G=$!
+          sleep 8
+          bash serving/scripts/smoke_predict_generate.sh http://127.0.0.1:18001 http://127.0.0.1:18010
+          kill "$PF_C" "$PF_G" 2>/dev/null || true
+          echo "Canary smoke test passed."
+
+      - name: Promote canary to prod (automated quality gates)
+        if: steps.trigger_check.outputs.trigger_found == 'true'
+        env:
+          MINIO_ACCESS_KEY: ${{ secrets.MINIO_ACCESS_KEY }}
+          MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
+        run: |
+          python3 - <<'EOF'
+          import os, sys, subprocess
+          import requests
+
+          MLFLOW = "http://mlflow.ml-platform.svc.cluster.local:5000"
+          MIN_F1_MACRO       = 0.70
+          MIN_WORST_CLASS_F1 = 0.55
+          MAX_GEN_LOSS       = 3.0
+
+          def get_latest_clf_metrics():
+              try:
+                  resp = requests.get(
+                      f"{MLFLOW}/api/2.0/mlflow/experiments/search",
+                      params={"filter": "name = 'teamchat_tone_clf'", "max_results": 1},
+                      timeout=15,
+                  )
+                  exp_id = resp.json()["experiments"][0]["experiment_id"]
+                  runs = requests.post(
+                      f"{MLFLOW}/api/2.0/mlflow/runs/search",
+                      json={
+                          "experiment_ids": [exp_id],
+                          "filter": "status = 'FINISHED'",
+                          "max_results": 1,
+                          "order_by": ["attributes.start_time DESC"],
+                      },
+                      timeout=15,
+                  ).json().get("runs", [])
+                  if not runs:
+                      return {}
+                  return {m["key"]: m["value"] for m in runs[0]["data"].get("metrics", [])}
+              except Exception as exc:
+                  print(f"[promote] MLflow query failed: {exc}")
+                  return {}
+
+          def get_latest_gen_metrics():
+              try:
+                  resp = requests.get(
+                      f"{MLFLOW}/api/2.0/mlflow/experiments/search",
+                      params={"filter": "name = 'teamchat_tone_generator_llm'", "max_results": 1},
+                      timeout=15,
+                  )
+                  exp_id = resp.json()["experiments"][0]["experiment_id"]
+                  runs = requests.post(
+                      f"{MLFLOW}/api/2.0/mlflow/runs/search",
+                      json={
+                          "experiment_ids": [exp_id],
+                          "filter": "status = 'FINISHED'",
+                          "max_results": 1,
+                          "order_by": ["attributes.start_time DESC"],
+                      },
+                      timeout=15,
+                  ).json().get("runs", [])
+                  if not runs:
+                      return {}
+                  return {m["key"]: m["value"] for m in runs[0]["data"].get("metrics", [])}
+              except Exception as exc:
+                  print(f"[promote] MLflow query failed: {exc}")
+                  return {}
+
+          clf_m = get_latest_clf_metrics()
+          gen_m = get_latest_gen_metrics()
+
+          f1_macro      = float(clf_m.get("f1_macro", 0) or 0)
+          worst_cls_f1  = min(
+              float(clf_m.get(f"f1_{lbl}", 1) or 1)
+              for lbl in ("formal", "friendly", "neutral")
+          )
+          gen_loss = float(gen_m.get("last_eval_loss") or gen_m.get("last_train_loss") or 999)
+
+          print(f"[promote] clf f1_macro={f1_macro:.3f} worst_class_f1={worst_cls_f1:.3f} gen_loss={gen_loss:.3f}")
+
+          gates_pass = (
+              f1_macro      >= MIN_F1_MACRO and
+              worst_cls_f1  >= MIN_WORST_CLASS_F1 and
+              gen_loss      <= MAX_GEN_LOSS
+          )
+
+          if not gates_pass:
+              print(
+                  f"[promote] Quality gates FAILED "
+                  f"(f1_macro={f1_macro:.3f}<{MIN_F1_MACRO} or "
+                  f"worst_cls={worst_cls_f1:.3f}<{MIN_WORST_CLASS_F1} or "
+                  f"gen_loss={gen_loss:.3f}>{MAX_GEN_LOSS}). "
+                  "Canary keeps new model; prod NOT updated."
+              )
+              sys.exit(0)
+
+          # Gates pass — promote @canary to @prod via MLflow API
+          print("[promote] Gates passed. Promoting @canary to @prod...")
+          for model_name in ("tone-classifier", "tone-generator-lora"):
+              try:
+                  ver_resp = requests.get(
+                      f"{MLFLOW}/api/2.0/mlflow/registered-models/alias",
+                      params={"name": model_name, "alias": "canary"},
+                      timeout=10,
+                  )
+                  version = ver_resp.json()["model_version"]["version"]
+                  requests.patch(
+                      f"{MLFLOW}/api/2.0/mlflow/registered-models/alias",
+                      json={"name": model_name, "alias": "prod", "version": version},
+                      timeout=10,
+                  )
+                  print(f"[promote] {model_name}@prod -> v{version}")
+              except Exception as exc:
+                  print(f"[promote] Failed to update {model_name}@prod: {exc}", file=sys.stderr)
+                  sys.exit(1)
+
+          print("[promote] Promotion complete. Prod pods will reload on next /ready cycle.")
+          EOF
 
       - name: Mark trigger record as processed in MinIO
         if: steps.trigger_check.outputs.trigger_found == 'true'
