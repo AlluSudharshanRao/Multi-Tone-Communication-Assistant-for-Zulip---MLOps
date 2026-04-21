@@ -1,7 +1,7 @@
 ---
 # Apply data / inference / integration (Zulip bridge) / training Kustomize bundles on the Chameleon VM.
 # Prerequisites: deploy_platform (namespaces, MinIO in ml-platform), k8s/ synced to /opt/mlops_project.
-# Copies minio-root into ml-data so data workloads can use secretKeyRef.
+# Copies minio-root into ml-data / ml-training / ml-serving for secretKeyRef (S3 + MLflow artifacts).
 # After inference + bridge, applies k8s/training/register-bundle/ (ConfigMap + Job). Job templates are immutable:
 # by default the Job is deleted first so apply succeeds (REPLACE_REGISTER_JOB=false to skip delete — apply may fail if the template changed).
 # Does not modify application source under data/, serving/, or training_proj15-main/.
@@ -97,6 +97,22 @@
       args:
         executable: /bin/bash
 
+    - name: Replicate minio-root Secret into ml-serving namespace
+      ansible.builtin.shell: |
+        set -euo pipefail
+        kubectl --kubeconfig "{{ kubeconfig_path }}" get secret minio-root -n ml-platform -o json | python3 -c "
+        import json, sys
+        d = json.load(sys.stdin)
+        m = d['metadata']
+        for k in ('uid', 'resourceVersion', 'creationTimestamp', 'managedFields'):
+            m.pop(k, None)
+        m['namespace'] = 'ml-serving'
+        d.pop('status', None)
+        print(json.dumps(d))
+        " | kubectl --kubeconfig "{{ kubeconfig_path }}" apply -f -
+      args:
+        executable: /bin/bash
+
     - name: Create/update GHCR image pull secret in workload namespaces
       ansible.builtin.shell: |
         set -euo pipefail
@@ -122,6 +138,13 @@
         executable: /bin/bash
       when: run_data_ingest_jobs | bool
 
+    - name: Delete MinIO bucket init job before full data kustomize (fresh Job; avoids stuck Running)
+      ansible.builtin.shell: |
+        kubectl --kubeconfig "{{ kubeconfig_path }}" delete job -n ml-data minio-bucket-init --ignore-not-found
+      args:
+        executable: /bin/bash
+      when: run_data_ingest_jobs | bool
+
     - name: Apply data stack (ml-data) — full bundle (includes ingest/batch Jobs)
       ansible.builtin.command: >
         kubectl --kubeconfig {{ kubeconfig_path }}
@@ -134,6 +157,7 @@
         kubectl --kubeconfig "{{ kubeconfig_path }}" apply -f "{{ repo_root }}/k8s/data/data-online-service.yaml"
         kubectl --kubeconfig "{{ kubeconfig_path }}" apply -f "{{ repo_root }}/k8s/data/data-online-deployment.yaml"
         kubectl --kubeconfig "{{ kubeconfig_path }}" apply -f "{{ repo_root }}/k8s/data/data-generator-deployment.yaml"
+        kubectl --kubeconfig "{{ kubeconfig_path }}" delete job -n ml-data minio-bucket-init --ignore-not-found
         kubectl --kubeconfig "{{ kubeconfig_path }}" apply -f "{{ repo_root }}/k8s/data/minio-bucket-init-job.yaml"
         kubectl --kubeconfig "{{ kubeconfig_path }}" delete job -n ml-data data-ingest --ignore-not-found
         kubectl --kubeconfig "{{ kubeconfig_path }}" delete job -n ml-data data-batch --ignore-not-found
@@ -145,7 +169,7 @@
       ansible.builtin.shell: |
         set -euo pipefail
         kubectl --kubeconfig "{{ kubeconfig_path }}" get job/minio-bucket-init -n ml-data
-        kubectl --kubeconfig "{{ kubeconfig_path }}" wait --for=condition=complete job/minio-bucket-init -n ml-data --timeout=300s
+        kubectl --kubeconfig "{{ kubeconfig_path }}" wait --for=condition=complete job/minio-bucket-init -n ml-data --timeout=600s
       args:
         executable: /bin/bash
 
