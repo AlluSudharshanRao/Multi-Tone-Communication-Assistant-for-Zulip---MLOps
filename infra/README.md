@@ -1,13 +1,18 @@
-# Infrastructure (Chameleon Cloud)
+# Infrastructure
 
-We use **two tools** for **IaC/CaC**:
+Infrastructure is split into Terraform for cloud resources and Ansible for cluster and workload deployment.
 
-- **Terraform (IaC)**: provision Chameleon/OpenStack resources (VM, floating IP, etc.).
-- **Ansible (CaC)**: install/configure Kubernetes and deploy cluster services/apps.
+## Layout
 
-Artifacts live under:
+- [terraform/openstack/README.md](C:\Users\sudha\OneDrive\Desktop\MLOps\Multi-Tone-Communication-Assistant-for-Zulip---MLOps\infra\terraform\openstack\README.md): OpenStack resources and generated inventory
+- [ansible/README.md](C:\Users\sudha\OneDrive\Desktop\MLOps\Multi-Tone-Communication-Assistant-for-Zulip---MLOps\infra\ansible\README.md): k3s bootstrap and workload playbooks
+- [ONE_PLATFORM_AND_CLEANUP.md](C:\Users\sudha\OneDrive\Desktop\MLOps\Multi-Tone-Communication-Assistant-for-Zulip---MLOps\infra\ONE_PLATFORM_AND_CLEANUP.md): operational cleanup notes for shared platform ownership
 
-- **`terraform/openstack/`** — Chameleon VM, floating IP (IaC).
-- **`ansible/`** — Kubernetes install + app deployment (CaC).
+## Recommended order
 
-Every resource name should include your **`projNN`** suffix. Do **not** commit passwords or kube secrets; use `terraform.tfvars` (gitignored) or environment variables.
+1. Terraform apply
+2. Inventory generation
+3. k3s install
+4. Platform deploy
+5. Zulip deploy
+6. ML workloads deploy

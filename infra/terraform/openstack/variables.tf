@@ -52,7 +52,7 @@ variable "openstack_tenant_id" {
 }
 
 variable "instance_name" {
-  description = "VM name suffix will be appended with project_id_suffix"
+  description = "VM name prefix for the control-plane and worker nodes"
   type        = string
   default     = "mlops-k8s"
 }
@@ -79,7 +79,7 @@ variable "network_id" {
 }
 
 variable "subnet_id" {
-  description = "Subnet UUID for the public router interface (Horizon → Network → Subnets). Required when create_public_router is true."
+  description = "Subnet UUID for the public router interface (Horizon -> Network -> Subnets). Required when create_public_router is true."
   type        = string
   default     = ""
 
@@ -102,18 +102,30 @@ variable "create_public_router" {
 }
 
 variable "blazar_reservation_id" {
-  description = "Chameleon Blazar *instance* reservation UUID (from lease → Reservations → id). When set, used as flavor_id (reservation:<id>); flavor_name is ignored."
+  description = "Legacy single-node reservation UUID. Prefer control_plane_blazar_reservation_id and worker_blazar_reservation_id for a two-node cluster."
+  type        = string
+  default     = ""
+}
+
+variable "control_plane_blazar_reservation_id" {
+  description = "Blazar reservation UUID for the control-plane node. When set, used as flavor_id; flavor_name is ignored for that node."
+  type        = string
+  default     = ""
+}
+
+variable "worker_blazar_reservation_id" {
+  description = "Blazar reservation UUID for the worker node. When set, used as flavor_id; flavor_name is ignored for that node."
   type        = string
   default     = ""
 }
 
 variable "install_k3s_cloud_init" {
-  description = "If true, embed cloud-init that installs single-node k3s on first boot"
+  description = "If true, embed cloud-init that installs k3s on the control-plane node on first boot"
   type        = bool
   default     = false
 }
 
 variable "security_groups" {
-  description = "Security group names for the instance (SSH + needed ports per your design)"
+  description = "Existing security group names for the instances. A managed mlops cluster group is added automatically."
   type        = list(string)
 }
