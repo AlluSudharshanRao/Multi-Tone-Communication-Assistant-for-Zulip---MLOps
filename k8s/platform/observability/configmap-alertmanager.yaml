@@ -1,0 +1,24 @@
+# Default receiver posts JSON to a public echo endpoint so firing alerts succeed without extra setup.
+# For Slack/Discord/PagerDuty: edit this URL or patch the ConfigMap after apply.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+  labels:
+    app: alertmanager
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: default
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+    receivers:
+      - name: default
+        webhook_configs:
+          - url: "https://httpbin.org/post"
+            send_resolved: true

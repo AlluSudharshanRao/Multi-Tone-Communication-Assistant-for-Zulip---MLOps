@@ -1,0 +1,73 @@
+---
+# Registers latest successful training runs into MLflow Model Registry and updates aliases.
+# This wires "training → serving" without manually copying model artifacts.
+#
+# Apply: kubectl apply -k k8s/training/register-bundle/
+# Re-run: kubectl delete job -n ml-training register-and-alias-latest --ignore-not-found && kubectl apply -k k8s/training/register-bundle/
+# Strict promotion: remove --skip-quality-gates and tune --min-classifier-* in args below.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: register-and-alias-latest
+  namespace: ml-training
+  labels:
+    app: register-and-alias-latest
+    role: training
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: register-and-alias-latest
+        role: training
+    spec:
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: ghcr-pull
+      volumes:
+        - name: register-script
+          configMap:
+            name: register-alias-script
+            defaultMode: 0555
+      containers:
+        - name: register
+          image: ghcr.io/allusudharshanrao/mlops-training-classifier:latest
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: register-script
+              mountPath: /scripts
+              readOnly: true
+          command: ["python", "/scripts/register_and_alias_latest.py"]
+          args:
+            - "--classifier-experiment=teamchat_tone_clf"
+            - "--classifier-run-name=candidate_tone_distilbert"
+            - "--classifier-model-name=tone-classifier"
+            - "--classifier-artifact-path=model"
+            - "--generator-experiment=teamchat_tone_generator_llm"
+            - "--generator-run-name=smollm2_135m_lora_cpu"
+            - "--generator-model-name=tone-generator-lora"
+            - "--generator-artifact-path=lora_checkpoint"
+            - "--aliases=canary,prod"
+            - "--min-classifier-f1-macro=0.70"
+            - "--min-classifier-worst-class-f1=0.55"
+            - "--skip-quality-gates"
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: "http://mlflow.ml-platform.svc.cluster.local:5000"
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-user
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-password
+            - name: MLFLOW_S3_ENDPOINT_URL
+              value: "http://minio.ml-platform.svc.cluster.local:9000"
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"
+            - name: AWS_S3_FORCE_PATH_STYLE
+              value: "true"

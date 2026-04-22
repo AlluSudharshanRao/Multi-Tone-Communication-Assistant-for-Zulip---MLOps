@@ -1,0 +1,70 @@
+# Set classifier + generator images for a tier (staging | canary | prod) without SSH.
+# Requires repo secret KUBE_CONFIG_B64: base64-encoded kubeconfig with rights to ml-serving.
+name: Promote inference images
+
+on:
+  workflow_dispatch:
+    inputs:
+      tier_suffix:
+        description: "Tier suffix on Deployment names (must match k8s/inference overlays)"
+        type: choice
+        required: true
+        default: prod
+        options:
+          - staging
+          - canary
+          - prod
+      image_tag:
+        description: "GHCR tag for classifier and generator images"
+        required: true
+        default: latest
+      update_classifier:
+        description: "Patch classifier-pytorch-<tier> image"
+        type: boolean
+        default: true
+      update_generator:
+        description: "Patch tone-generator-<tier> image"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Write kubeconfig
+        env:
+          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KUBE_CONFIG_B64:-}" ]; then
+            echo "Missing repository secret KUBE_CONFIG_B64 (base64 of a kubeconfig that can update ml-serving)."
+            exit 1
+          fi
+          echo "$KUBE_CONFIG_B64" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+          chmod 600 "$RUNNER_TEMP/kubeconfig"
+
+      - name: kubectl set image
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+        run: |
+          set -euo pipefail
+          NS=ml-serving
+          TIER="${{ inputs.tier_suffix }}"
+          TAG="${{ inputs.image_tag }}"
+          OWNER="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          IMG_C="ghcr.io/${OWNER}/mlops-serving-classifier:${TAG}"
+          IMG_G="ghcr.io/${OWNER}/mlops-serving-generator:${TAG}"
+          if [ "${{ inputs.update_classifier }}" = "true" ]; then
+            kubectl set image "deployment/classifier-pytorch-${TIER}" "classifier-pytorch=${IMG_C}" -n "$NS"
+            kubectl rollout status "deployment/classifier-pytorch-${TIER}" -n "$NS" --timeout=600s
+          fi
+          if [ "${{ inputs.update_generator }}" = "true" ]; then
+            kubectl set image "deployment/tone-generator-${TIER}" "tone-generator=${IMG_G}" -n "$NS"
+            kubectl rollout status "deployment/tone-generator-${TIER}" -n "$NS" --timeout=600s
+          fi

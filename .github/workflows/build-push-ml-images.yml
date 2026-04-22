@@ -1,0 +1,82 @@
+# Build and push ML integration images to GHCR (linux/amd64 for Chameleon KVM).
+# Uses existing Dockerfiles under data/, serving/, training_proj15-main/training/ — no edits to those trees.
+# Image URIs: ghcr.io/<lowercase_github_owner>/mlops-<component> — must match k8s/{data,inference,training,integration} manifests.
+name: Build and push ML images
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - "data/**"
+      - "serving/**"
+      - "training_proj15-main/training/**"
+      - "integrations/zulip-bridge/**"
+      - ".github/workflows/build-push-ml-images.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: mlops-data-ingest
+            context: ./data/ingest
+            file: ./data/ingest/Dockerfile
+          - image: mlops-data-online
+            context: ./data/online
+            file: ./data/online/Dockerfile
+          - image: mlops-data-generator
+            context: ./data/generator
+            file: ./data/generator/Dockerfile
+          - image: mlops-data-batch
+            context: ./data/batch
+            file: ./data/batch/Dockerfile
+          - image: mlops-serving-classifier
+            context: ./serving/classifier
+            file: ./serving/classifier/Dockerfile
+          - image: mlops-serving-generator
+            context: ./serving/generator
+            file: ./serving/generator/Dockerfile
+          - image: mlops-training-classifier
+            context: ./training_proj15-main/training
+            file: ./training_proj15-main/training/Dockerfile
+          - image: mlops-training-generator
+            context: ./training_proj15-main/training
+            file: ./training_proj15-main/training/Dockerfile.llm
+          - image: mlops-zulip-bridge
+            context: ./integrations/zulip-bridge
+            file: ./integrations/zulip-bridge/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: GHCR owner (lowercase)
+        id: gh
+        run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.image }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ steps.gh.outputs.owner }}/${{ matrix.image }}:latest
+            ghcr.io/${{ steps.gh.outputs.owner }}/${{ matrix.image }}:${{ github.sha }}
+          # Harmless for images without ARG; training Dockerfiles use GIT_SHA for MLflow metadata.
+          build-args: GIT_SHA=${{ github.sha }}

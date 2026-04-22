@@ -1,0 +1,13 @@
+# MLflow registry helper: ConfigMap (Python script) + Job. Stable CM name for the Job volume.
+# Apply: kubectl apply -k k8s/training/register-bundle/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ml-training
+resources:
+  - job.yaml
+configMapGenerator:
+  - name: register-alias-script
+    options:
+      disableNameSuffixHash: true
+    files:
+      - register_and_alias_latest.py=scripts/register_and_alias_latest.py

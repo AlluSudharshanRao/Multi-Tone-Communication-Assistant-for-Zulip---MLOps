@@ -1,0 +1,45 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-bucket-init
+  namespace: ml-data
+  labels:
+    app: minio-bucket-init
+    role: data
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: minio-bucket-init
+        role: data
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: minio/mc:RELEASE.2025-02-21T16-00-46Z
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MINIO_ENDPOINT
+              value: "http://minio.ml-platform.svc.cluster.local:9000"
+            - name: MINIO_BUCKET
+              value: "zulip-rewriter"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-user
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-password
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              mc alias set platform "$MINIO_ENDPOINT" "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
+              mc mb --ignore-existing "platform/$MINIO_BUCKET"

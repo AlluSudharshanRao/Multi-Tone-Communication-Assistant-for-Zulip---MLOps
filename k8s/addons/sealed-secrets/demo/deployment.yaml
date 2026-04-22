@@ -1,0 +1,44 @@
+# Demo consumer: proves the cluster decrypted a SealedSecret into Secret demo-api-key.
+# Apply after: kubectl apply -f sealedsecret-demo.yaml (generated on your cluster with kubeseal).
+# See ../README.md — do not commit plaintext Secrets.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sealed-secrets-demo
+  namespace: ml-platform
+  labels:
+    app.kubernetes.io/name: sealed-secrets-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sealed-secrets-demo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sealed-secrets-demo
+    spec:
+      containers:
+        - name: demo
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              while true; do
+                if [ -n "$API_KEY" ]; then echo "$(date -u -Iseconds) API_KEY present (length ${#API_KEY})"; else echo "$(date -u -Iseconds) API_KEY missing"; fi
+                sleep 30
+              done
+          env:
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: demo-api-key
+                  key: api-key
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

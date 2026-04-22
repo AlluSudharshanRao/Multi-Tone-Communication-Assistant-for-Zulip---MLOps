@@ -1,0 +1,17 @@
+# ClusterIP — traffic from Traefik Ingress only (no NodePort in default overlay).
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+  namespace: ml-platform
+  labels:
+    app: mlflow
+spec:
+  type: ClusterIP
+  selector:
+    app: mlflow
+  ports:
+    - name: http
+      port: 5000
+      targetPort: http

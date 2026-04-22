@@ -1,0 +1,103 @@
+# Bridges Zulip outgoing webhooks → tone-generator-prod /generate.
+# Optional Secret zulip-bridge (key webhook-secret) enables token validation.
+# Zulip UI: register an outgoing webhook bot; URL = http://zulip-bridge:8090/zulip/webhook
+#   (in-cluster) or Ingress host if exposed.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zulip-bridge
+  labels:
+    app: zulip-bridge
+    role: integration
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zulip-bridge
+  template:
+    metadata:
+      labels:
+        app: zulip-bridge
+        role: integration
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      imagePullSecrets:
+        - name: ghcr-pull
+      containers:
+        - name: zulip-bridge
+          image: ghcr.io/allusudharshanrao/mlops-zulip-bridge:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8090
+              name: http
+          env:
+            - name: GENERATOR_URL
+              value: "http://tone-generator-prod:8010"
+            - name: REDACT_LOGS
+              value: "true"
+            - name: RATE_PER_MINUTE
+              value: "60"
+            - name: MAX_MESSAGE_LEN
+              value: "2000"
+            - name: ZULIP_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: zulip-bridge
+                  key: webhook-secret
+                  optional: true
+            # MinIO — required for POST /feedback persistence.
+            # minio-root Secret is created by deploy_platform Ansible playbook
+            # (random password; never hardcoded in manifests).
+            - name: MINIO_ENDPOINT
+              value: "http://minio.ml-platform.svc.cluster.local:9000"
+            - name: MINIO_BUCKET
+              value: "zulip-rewriter"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-user
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-password
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zulip-bridge
+  labels:
+    app: zulip-bridge
+spec:
+  type: ClusterIP
+  selector:
+    app: zulip-bridge
+  ports:
+    - name: http
+      port: 8090
+      targetPort: http

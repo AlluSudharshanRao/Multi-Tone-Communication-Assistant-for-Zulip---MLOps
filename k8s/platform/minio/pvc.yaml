@@ -1,0 +1,16 @@
+# Object store data (S3 API + embedded console). k3s: local-path is typical.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: ml-platform
+  labels:
+    app: minio
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi

@@ -1,0 +1,45 @@
+# Tone Classifier Service
+# Build:  docker build -t tone-classifier .
+# Run (dummy mode, no model download — default):
+#   docker run -p 8001:8001 tone-classifier
+#
+# Run (real PyTorch baseline):
+#   docker run -e DUMMY_MODE=false -e SERVING_BACKEND=pytorch \
+#              -e MODEL_PATH=distilbert-base-uncased -p 8001:8001 tone-classifier
+#
+# Run (real ONNX):
+#   docker run -e DUMMY_MODE=false -e SERVING_BACKEND=onnx \
+#              -v /mnt/model:/app/model_cache -p 8001:8001 tone-classifier
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Core HTTP stack + CPU PyTorch + HuggingFace (prod/canary use DUMMY_MODE=false).
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+RUN pip install --no-cache-dir torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir "transformers==4.40.0" "safetensors>=0.4.3"
+
+COPY app.py audit_log.py model.py model_onnx.py model_quantized.py ./
+
+# Non-root user for security
+RUN useradd -m -u 1000 appuser
+USER appuser
+
+ENV DUMMY_MODE=true
+ENV SERVING_BACKEND=pytorch
+ENV MODEL_PATH=distilbert-base-uncased
+ENV ONNX_PATH=/app/model_cache/classifier.onnx
+
+EXPOSE 8001
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s \
+  CMD curl -f http://localhost:8001/health || exit 1
+
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "1"]

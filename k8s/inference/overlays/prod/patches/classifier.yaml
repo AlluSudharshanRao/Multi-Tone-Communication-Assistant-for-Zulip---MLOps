@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: classifier-pytorch
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: classifier-pytorch
+          env:
+            - name: DUMMY_MODE
+              value: "false"
+            - name: CLASSIFIER_MODEL_URI
+              value: "models:/tone-classifier@prod"
+            - name: DEPLOYMENT_TIER
+              value: "production"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 36
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 420
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6

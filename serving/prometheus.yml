@@ -1,0 +1,24 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "classifier_pytorch"
+    static_configs:
+      - targets: ["classifier-pytorch:8001"]
+    metrics_path: /metrics
+
+  - job_name: "classifier_onnx"
+    static_configs:
+      - targets: ["classifier-onnx:8001"]
+    metrics_path: /metrics
+
+  - job_name: "classifier_quantized"
+    static_configs:
+      - targets: ["classifier-quantized:8001"]
+    metrics_path: /metrics
+
+  - job_name: "generator"
+    static_configs:
+      - targets: ["generator:8010"]
+    metrics_path: /metrics

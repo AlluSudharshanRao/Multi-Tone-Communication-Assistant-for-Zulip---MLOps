@@ -1,0 +1,9 @@
+# Kustomize bundle: classifier + generator training Jobs only.
+# Apply: kubectl apply -k k8s/training/
+# Register Job + script ConfigMap: kubectl apply -k k8s/training/register-bundle/ (also run by Ansible).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ml-training
+resources:
+  - classifier-training-job.yaml
+  - generator-training-job.yaml

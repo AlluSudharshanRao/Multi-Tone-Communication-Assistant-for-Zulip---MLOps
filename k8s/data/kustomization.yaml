@@ -1,0 +1,14 @@
+# Data stack — mirrors teammate docker-compose (minus MinIO; use ml-platform).
+# Compose source: https://github.com/Hard-Hustler/Zulip_Chat_Feature/blob/main/docker-compose.yml
+# Before apply: copy minio-root Secret into ml-data; set image tags in YAML; ensure MinIO bucket zulip-rewriter exists.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ml-data
+resources:
+  - minio-bucket-init-job.yaml
+  - data-online-service.yaml
+  - data-online-deployment.yaml
+  - data-generator-deployment.yaml
+  - data-ingest-job.yaml
+  - data-batch-job.yaml
+  - retrain-trigger-cronjob.yaml

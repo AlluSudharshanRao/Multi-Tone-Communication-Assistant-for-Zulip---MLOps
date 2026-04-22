@@ -1,0 +1,72 @@
+# Auto-apply Prometheus + Grafana manifests whenever observability config changes on main.
+# Also triggered manually (workflow_dispatch) so DevOps can re-apply after infra changes.
+# Requires repository secret KUBE_CONFIG_B64 (base64 of a kubeconfig with rights to
+# the monitoring namespace — same secret used by promote-inference.yml).
+#
+# What this automates:
+#   1. kubectl apply -k k8s/platform/observability/  — picks up Prometheus config,
+#      alert rules, Grafana datasources, dashboard provider, and dashboard JSON.
+#   2. kubectl rollout restart deployment/grafana    — forces Grafana to remount the
+#      updated ConfigMap immediately (without this, pod sees stale file until kubelet
+#      re-syncs, which can take 1–2 min).
+#   3. kubectl rollout status  — fails the workflow if the rollout never becomes healthy,
+#      so a broken Grafana image/config does not silently stay in a crash loop.
+name: Deploy observability (Prometheus + Grafana)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - "k8s/platform/observability/**"
+      - ".github/workflows/deploy-observability.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Write kubeconfig
+        env:
+          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KUBE_CONFIG_B64:-}" ]; then
+            echo "::error::Missing repository secret KUBE_CONFIG_B64 (base64-encoded kubeconfig with access to the monitoring namespace)."
+            exit 1
+          fi
+          echo "$KUBE_CONFIG_B64" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+          chmod 600 "$RUNNER_TEMP/kubeconfig"
+
+      - name: Apply observability manifests
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+        run: |
+          set -euo pipefail
+          kubectl apply -k k8s/platform/observability/
+          echo "Manifests applied."
+
+      - name: Restart Grafana to pick up ConfigMap changes
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+        run: |
+          set -euo pipefail
+          kubectl rollout restart deployment/grafana -n monitoring
+          kubectl rollout status deployment/grafana -n monitoring --timeout=180s
+          echo "Grafana rollout healthy."
+
+      - name: Restart Prometheus to reload config and rules
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+        run: |
+          set -euo pipefail
+          kubectl rollout restart deployment/prometheus -n monitoring
+          kubectl rollout status deployment/prometheus -n monitoring --timeout=180s
+          echo "Prometheus rollout healthy."

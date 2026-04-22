@@ -1,0 +1,33 @@
+# Team namespaces for platform, product, and future ML workloads.
+# Apply once per cluster, or create the same names via Terraform — not both.
+# Usage: kubectl apply -f k8s/base/namespaces.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: zulip
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ml-platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ml-training
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ml-serving
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ml-data
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring

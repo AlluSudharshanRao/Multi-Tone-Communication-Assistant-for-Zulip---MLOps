@@ -1,0 +1,15 @@
+# Optional classifier backends (ONNX, quantized) — single shared pool, not tier-multiplied.
+# Point generator tier env CLASSIFIER_URL at these only if Serving validates that path.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ml-serving
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: tone-assistant
+      app.kubernetes.io/component: inference-backend
+    # Do not inject these into spec.selector — selector is immutable; upgrades from
+    # older classifier-onnx / classifier-quantized Deployments would fail to apply.
+    includeSelectors: false
+resources:
+  - classifier-onnx.yaml
+  - classifier-quantized.yaml

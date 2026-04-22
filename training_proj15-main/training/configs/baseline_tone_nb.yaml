@@ -1,0 +1,28 @@
+# Baseline tone classifier: Multinomial NB + TF-IDF (labels match samples/classifier_output.json)
+experiment_name: teamchat_tone_clf
+run_name: baseline_tone_multinomial_nb
+description: "Baseline — MultinomialNB + TF-IDF for formal | friendly | neutral."
+
+data:
+  dataset: tone_csv
+  csv_path: data/tone_seed.csv
+  label_classes:
+    - formal
+    - friendly
+    - neutral
+  test_size: 0.2
+  random_seed: 42
+
+tfidf:
+  max_features: 8000
+  ngram_min: 1
+  ngram_max: 2
+  min_df: 1
+
+model:
+  type: multinomial_nb
+  params:
+    alpha: 1.0
+
+optuna:
+  enabled: false

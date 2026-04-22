@@ -1,0 +1,27 @@
+# S3 API over HTTPS (boto3, aws cli, MLflow artifact root). TLS Secret must exist in ml-platform.
+# Host must match browser/client URL and cert SAN (replace IP if your floating IP changes).
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minio-api
+  namespace: ml-platform
+  labels:
+    app: minio
+spec:
+  ingressClassName: traefik
+  tls:
+    - secretName: chameleon-nip-tls
+      hosts:
+        - minio.129.114.27.192.nip.io
+  rules:
+    - host: minio.129.114.27.192.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: minio
+                port:
+                  number: 9000

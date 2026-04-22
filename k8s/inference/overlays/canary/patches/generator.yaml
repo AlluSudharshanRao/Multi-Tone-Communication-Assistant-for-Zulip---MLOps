@@ -1,0 +1,16 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tone-generator
+spec:
+  template:
+    spec:
+      containers:
+        - name: tone-generator
+          env:
+            - name: CLASSIFIER_URL
+              value: "http://classifier-pytorch-canary:8001"
+            - name: DUMMY_MODE
+              value: "false"
+            - name: DEPLOYMENT_TIER
+              value: "canary"

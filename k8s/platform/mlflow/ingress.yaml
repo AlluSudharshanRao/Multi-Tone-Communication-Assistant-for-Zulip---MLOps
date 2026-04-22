@@ -1,0 +1,27 @@
+# HTTPS front door for MLflow (k3s Traefik). TLS Secret must exist in this namespace.
+# Host must match browser URL and TLS cert SAN (replace IP if your floating IP changes).
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mlflow
+  namespace: ml-platform
+  labels:
+    app: mlflow
+spec:
+  ingressClassName: traefik
+  tls:
+    - secretName: chameleon-nip-tls
+      hosts:
+        - mlflow.129.114.27.192.nip.io
+  rules:
+    - host: mlflow.129.114.27.192.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mlflow
+                port:
+                  number: 5000

@@ -1,0 +1,11 @@
+{
+  "message_id": "msg_0042",
+  "predicted_tone": "neutral",
+  "probabilities": {
+    "formal": 0.07,
+    "friendly": 0.21,
+    "neutral": 0.72
+  },
+  "confidence": 0.72,
+  "latency_ms": 42.3
+}

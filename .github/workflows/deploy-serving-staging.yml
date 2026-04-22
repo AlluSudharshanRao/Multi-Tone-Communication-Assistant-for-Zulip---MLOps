@@ -1,0 +1,107 @@
+# Auto-deploy serving images to staging and run a contract smoke test.
+# Triggers:
+#   A) workflow_run: fires after build-push-ml-images succeeds on main — guarantees images
+#      exist in GHCR before apply.
+#   B) workflow_dispatch: manual trigger (e.g. re-deploy without a new image build).
+#   C) push to main when only k8s/inference/** or serving/ manifests change (no new image,
+#      but config / resource limits updated).
+#
+# Requires:
+#   KUBE_CONFIG_B64 — base64-encoded kubeconfig with rights to ml-serving namespace.
+#
+# Smoke test runs via kubectl port-forward so it works without a public Ingress.
+# The smoke test script (serving/scripts/smoke_predict_generate.sh) is serving-owned.
+name: Deploy serving — staging + smoke test
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Build and push ML images"]
+    types: [completed]
+    branches: [main, master]
+  push:
+    branches: [main, master]
+    paths:
+      - "k8s/inference/**"
+      - "serving/scripts/smoke_predict_generate.sh"
+      - ".github/workflows/deploy-serving-staging.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-staging:
+    # For workflow_run trigger, only run if the upstream build succeeded.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Write kubeconfig
+        env:
+          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KUBE_CONFIG_B64:-}" ]; then
+            echo "::error::Missing repository secret KUBE_CONFIG_B64."
+            exit 1
+          fi
+          echo "$KUBE_CONFIG_B64" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+          chmod 600 "$RUNNER_TEMP/kubeconfig"
+
+      - name: Apply staging inference overlay
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+        run: |
+          set -euo pipefail
+          kubectl apply -k k8s/inference/overlays/staging/
+          echo "Staging manifests applied."
+
+      - name: Wait for classifier-pytorch-staging rollout
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+        run: |
+          kubectl rollout status deployment/classifier-pytorch-staging \
+            -n ml-serving --timeout=300s
+
+      - name: Wait for tone-generator-staging rollout
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+        run: |
+          kubectl rollout status deployment/tone-generator-staging \
+            -n ml-serving --timeout=300s
+
+      - name: Smoke test via port-forward (classifier)
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+        run: |
+          set -euo pipefail
+          # Port-forward in background; give it 5 s to be ready.
+          kubectl port-forward svc/classifier-pytorch-staging 18001:8001 \
+            -n ml-serving &
+          PF_C=$!
+          sleep 5
+
+          kubectl port-forward svc/tone-generator-staging 18010:8010 \
+            -n ml-serving &
+          PF_G=$!
+          sleep 5
+
+          bash serving/scripts/smoke_predict_generate.sh \
+            http://127.0.0.1:18001 \
+            http://127.0.0.1:18010
+
+          kill "$PF_C" "$PF_G" 2>/dev/null || true
+          echo "Smoke test passed."
+
+      - name: Print serving pod status (diagnostics)
+        if: always()
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+        run: |
+          kubectl get pods -n ml-serving -l tier=staging -o wide || true
+          kubectl get events -n ml-serving --sort-by='.lastTimestamp' \
+            --field-selector reason=Failed 2>/dev/null | tail -20 || true

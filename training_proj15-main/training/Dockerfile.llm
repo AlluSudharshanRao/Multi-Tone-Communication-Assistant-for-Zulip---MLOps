@@ -1,0 +1,30 @@
+# LLM LoRA training on CPU (small image: CPU-only PyTorch).
+# docker build --build-arg GIT_SHA=$(git rev-parse HEAD) -f training/Dockerfile.llm -t llm-train:proj15 ./training
+# Set MLFLOW_TRACKING_URI like the tone Dockerfile (see DEPLOYMENT.md).
+FROM python:3.11-slim
+
+ARG GIT_SHA=unknown
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    GIT_SHA=${GIT_SHA}
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# CPU wheels (smaller than default CUDA torch)
+RUN pip install --upgrade pip && \
+    pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+COPY requirements-llm.txt .
+RUN pip install -r requirements-llm.txt
+
+COPY train_llm.py .
+COPY configs/ /app/configs/
+COPY data/ /app/data/
+
+ENTRYPOINT ["python", "/app/train_llm.py"]
+CMD ["--config", "/app/configs/llm_generator_small.yaml"]

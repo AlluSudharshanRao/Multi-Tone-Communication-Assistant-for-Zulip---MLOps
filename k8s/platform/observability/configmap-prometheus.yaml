@@ -1,0 +1,126 @@
+# Scrape self + any pod with prometheus.io/scrape=true (e.g. inference pods in ml-serving).
+# Alert rules align with serving/alerts/serving.rules.yml; Alertmanager in this namespace.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+  labels:
+    app: prometheus
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+                - alertmanager:9093
+
+    rule_files:
+      - /etc/prometheus/serving.rules.yml
+
+    scrape_configs:
+      - job_name: prometheus
+        static_configs:
+          - targets: ["localhost:9090"]
+
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+
+  serving.rules.yml: |
+    groups:
+      - name: serving_tone_services
+        interval: 30s
+        rules:
+          - alert: ServingClassifierHighErrorRatio
+            expr: |
+              sum(rate(classifier_requests_total{status="error"}[5m]))
+              / clamp_min(sum(rate(classifier_requests_total[5m])), 0.001)
+              > 0.05
+            for: 10m
+            labels:
+              severity: warning
+              component: serving
+            annotations:
+              summary: "Classifier error ratio > 5% (10m)"
+              description: "Investigate classifier logs and recent deploys."
+
+          - alert: ServingClassifierLatencyP95High
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum(rate(classifier_latency_seconds_bucket[5m])) by (le)
+              ) > 0.15
+            for: 15m
+            labels:
+              severity: warning
+              component: serving
+            annotations:
+              summary: "Classifier p95 latency > 150ms (15m)"
+              description: "Check load, CPU limits, and model backend (pytorch/onnx)."
+
+          - alert: ServingGeneratorHighErrorRatio
+            expr: |
+              sum(rate(generator_requests_total{status="error"}[5m]))
+              / clamp_min(sum(rate(generator_requests_total[5m])), 0.001)
+              > 0.05
+            for: 10m
+            labels:
+              severity: warning
+              component: serving
+            annotations:
+              summary: "Generator error ratio > 5% (10m)"
+              description: "Investigate generator and upstream classifier URL."
+
+          - alert: ServingGeneratorLatencyP95High
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum(rate(generator_latency_seconds_bucket[5m])) by (le)
+              ) > 0.8
+            for: 15m
+            labels:
+              severity: warning
+              component: serving
+            annotations:
+              summary: "Generator p95 latency > 800ms (15m)"
+              description: "Dummy CPU baseline may exceed SLO; GPU path or rollback."
+
+      - name: platform_observability
+        interval: 30s
+        rules:
+          - alert: PrometheusConfigLastReloadFailed
+            expr: prometheus_config_last_reload_successful != 1
+            for: 5m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "Prometheus configuration reload failed"
+              description: "Inspect Prometheus logs and the prometheus-config ConfigMap."

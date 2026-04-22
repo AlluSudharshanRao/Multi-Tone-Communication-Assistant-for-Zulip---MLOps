@@ -1,0 +1,35 @@
+text,tone
+"Dear team, please find the Q3 metrics attached for your review.",formal
+"Kindly confirm receipt of the updated specification document.",formal
+"I would appreciate your feedback on the proposed timeline by EOD Friday.",formal
+"Per our discussion, the deployment window is scheduled for Tuesday 02:00 UTC.",formal
+"Please let me know if you require any clarification on the action items.",formal
+"Thank you for your prompt attention to this matter.",formal
+"The following items remain outstanding from last week's sprint review.",formal
+"We will proceed contingent on approval from the security team.",formal
+"Hi! Hope you're having a good week — quick question on the API change.",friendly
+"Thanks so much for jumping on this yesterday, really appreciate it!",friendly
+"Hey, no rush, but when you get a chance could you peek at the PR?",friendly
+"Awesome work on the release — congrats to everyone who chipped in!",friendly
+"Let me know if you want to pair on this; happy to hop on a call.",friendly
+"Sounds good! I'll sync with you tomorrow morning.",friendly
+"yo can u just fix the bug already its been 3 days lol",neutral
+"The server restarted at 14:32 UTC; logs are in the usual bucket.",neutral
+"PR #482 is ready for review.",neutral
+"Build failed on step 3; link to CI run attached.",neutral
+"Deployed v2.4.1 to staging.",neutral
+"Meeting moved to 3pm.",neutral
+"Updated the ticket with repro steps.",neutral
+"VPN was flaky this morning; seems stable now.",neutral
+"Could you please review the security checklist before we merge?",formal
+"I am writing to follow up on the open incident ticket INC-4412.",formal
+"Good morning team — anyone free for a quick sync on the rollout?",friendly
+"You're the best, thanks for unblocking me on that config issue!",friendly
+"Bug still repros on main; steps in the ticket.",neutral
+"Restarted the worker; queue depth is back to normal.",neutral
+"Per policy, all changes require two approvals from maintainers.",formal
+"Wanted to say thanks — that explanation made the design click for me.",friendly
+"Latency p95 is up 12% vs last week; investigating.",neutral
+"Please refrain from deploying during the change freeze window.",formal
+"Happy Friday! Shipping the small UX fix we talked about.",friendly
+"Rollback completed; service health checks are green.",neutral
