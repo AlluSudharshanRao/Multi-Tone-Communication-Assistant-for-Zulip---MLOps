@@ -31,6 +31,8 @@ Same command is used by [`deploy_ml_workloads.yml`](../../infra/ansible/playbook
 
 Base manifests include **`classifier-pytorch-hpa`** and **`tone-generator-hpa`**. Kustomize `nameSuffix` rewrites `scaleTargetRef` so each tier scales its own Deployment (`classifier-pytorch-staging` … `classifier-pytorch-prod`, same for `tone-generator-*`). **k3s** ships **metrics-server** by default; confirm `kubectl top pods -n ml-serving` works before expecting HPA status. Example: `kubectl get hpa -n ml-serving`.
 
+**Classifier readiness:** The serving image exposes **`GET /ready`** (503 while the MLflow artifact + PyTorch model load in a background thread). Deployments use **`readinessProbe` → `/ready`** so the pod can be `Running` and answer **`/health`** for liveness while the model is still downloading. Use `kubectl rollout status deployment/classifier-pytorch-canary -n ml-serving --timeout=15m` (or longer) for the first real-model pull on a cold node.
+
 ## Design choices
 
 - **Single namespace `ml-serving`** with `nameSuffix` per tier: simple RBAC and one place for `imagePullSecrets`; matches common single-cluster env patterns.

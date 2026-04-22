@@ -25,10 +25,10 @@ metadata:
     role: training
     model: distilbert
 spec:
-  # Allow 1 retry on transient failure (e.g. MinIO connectivity at startup).
-  backoffLimit: 1
-  # Clean up completed pod after 1 hour to free node resources.
-  ttlSecondsAfterFinished: 3600
+  # No retries — keep pod in Error state so we can read logs before GC.
+  backoffLimit: 0
+  # Keep failed pod for 6 hours for debugging.
+  ttlSecondsAfterFinished: 21600
   template:
     metadata:
       labels:
@@ -37,6 +37,13 @@ spec:
         model: distilbert
     spec:
       restartPolicy: OnFailure
+      # Run on worker node: more disk space, and hostNetwork lets the host's
+      # Flannel routes + iptables handle DNS (works around port-security DNS issue).
+      nodeName: mlops-proj15
+      hostNetwork: true
+      # Use host DNS — cluster DNS (CoreDNS) is unreachable from worker due to
+      # broken cross-node pod networking. All service endpoints below use NodePort IPs.
+      dnsPolicy: Default
       imagePullSecrets:
         - name: ghcr-pull
       initContainers:
@@ -45,7 +52,7 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: MINIO_ENDPOINT
-              value: "http://minio.ml-platform.svc.cluster.local:9000"
+              value: "http://129.114.27.192:30900"
             - name: MINIO_BUCKET
               value: "zulip-rewriter"
             - name: MINIO_ACCESS_KEY
@@ -63,6 +70,14 @@ spec:
             - -c
             - |
               set -eu
+              TRIES=0; MAX=24
+              until wget -q --spider --timeout=5 "${MINIO_ENDPOINT}/minio/health/ready" 2>/dev/null; do
+                TRIES=$((TRIES+1))
+                if [ "$TRIES" -ge "$MAX" ]; then
+                  echo "ERROR: MinIO not healthy after $((MAX*5))s"; exit 1
+                fi
+                echo "MinIO not ready ($TRIES/$MAX), sleeping 5s..."; sleep 5
+              done
               mc alias set platform "$MINIO_ENDPOINT" "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
               mc ls "platform/$MINIO_BUCKET" >/dev/null
               mc cp --recursive "platform/$MINIO_BUCKET/datasets/" /data/ || true
@@ -79,12 +94,12 @@ spec:
             - "/app/configs/candidate_tone_distilbert.yaml"
           env:
             - name: MLFLOW_TRACKING_URI
-              value: "http://mlflow.ml-platform.svc.cluster.local:5000"
+              value: "http://129.114.27.192:30500"
             # Informational; train.py uses experiment_name from the YAML above.
             - name: MLFLOW_EXPERIMENT_NAME
               value: "teamchat_tone_clf"
             - name: MINIO_ENDPOINT
-              value: "minio.ml-platform.svc.cluster.local:9000"
+              value: "129.114.27.192:30900"
             - name: MINIO_BUCKET
               value: "zulip-rewriter"
             - name: MINIO_ROOT_USER
@@ -109,7 +124,7 @@ spec:
                   name: minio-root
                   key: root-password
             - name: MLFLOW_S3_ENDPOINT_URL
-              value: "http://minio.ml-platform.svc.cluster.local:9000"
+              value: "http://129.114.27.192:30900"
             - name: AWS_DEFAULT_REGION
               value: "us-east-1"
             - name: AWS_S3_FORCE_PATH_STYLE

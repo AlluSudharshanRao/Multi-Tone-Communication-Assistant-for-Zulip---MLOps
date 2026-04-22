@@ -21,8 +21,8 @@ metadata:
     role: training
     model: llm-generator
 spec:
-  backoffLimit: 1
-  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 21600
   template:
     metadata:
       labels:
@@ -32,6 +32,9 @@ spec:
     spec:
       restartPolicy: OnFailure
       # runtimeClassName: nvidia   # Uncomment for GPU node
+      nodeName: mlops-proj15
+      hostNetwork: true
+      dnsPolicy: Default
       imagePullSecrets:
         - name: ghcr-pull
       initContainers:
@@ -40,7 +43,7 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: MINIO_ENDPOINT
-              value: "http://minio.ml-platform.svc.cluster.local:9000"
+              value: "http://129.114.27.192:30900"
             - name: MINIO_BUCKET
               value: "zulip-rewriter"
             - name: MINIO_ACCESS_KEY
@@ -58,6 +61,14 @@ spec:
             - -c
             - |
               set -eu
+              TRIES=0; MAX=24
+              until wget -q --spider --timeout=5 "${MINIO_ENDPOINT}/minio/health/ready" 2>/dev/null; do
+                TRIES=$((TRIES+1))
+                if [ "$TRIES" -ge "$MAX" ]; then
+                  echo "ERROR: MinIO not healthy after $((MAX*5))s"; exit 1
+                fi
+                echo "MinIO not ready ($TRIES/$MAX), sleeping 5s..."; sleep 5
+              done
               mc alias set platform "$MINIO_ENDPOINT" "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
               mc ls "platform/$MINIO_BUCKET" >/dev/null
               mc cp --recursive "platform/$MINIO_BUCKET/datasets/" /data/ || true
@@ -70,11 +81,11 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: MLFLOW_TRACKING_URI
-              value: "http://mlflow.ml-platform.svc.cluster.local:5000"
+              value: "http://129.114.27.192:30500"
             - name: MLFLOW_EXPERIMENT_NAME
-              value: "tone-generator"
+              value: "teamchat_tone_generator_llm"
             - name: MINIO_ENDPOINT
-              value: "minio.ml-platform.svc.cluster.local:9000"
+              value: "129.114.27.192:30900"
             - name: MINIO_BUCKET
               value: "zulip-rewriter"
             - name: MINIO_ROOT_USER
@@ -98,7 +109,7 @@ spec:
                   name: minio-root
                   key: root-password
             - name: MLFLOW_S3_ENDPOINT_URL
-              value: "http://minio.ml-platform.svc.cluster.local:9000"
+              value: "http://129.114.27.192:30900"
             - name: AWS_DEFAULT_REGION
               value: "us-east-1"
             - name: AWS_S3_FORCE_PATH_STYLE

@@ -19,7 +19,11 @@
 #
 # Data ingest/batch Jobs:
 # - Set RUN_DATA_INGEST_JOBS=false (or -e run_data_ingest_jobs=false) to skip one-shot ingest/batch
-#   while still applying data-online/data-generator + minio-bucket-init.
+#   while still applying data-online/data-generator + minio-bucket-init Job (no wait — playbook continues
+#   to inference so you are not blocked up to 600s on that Job; verify the Job separately if needed).
+# - If the zulip-rewriter bucket already exists but job/minio-bucket-init hangs (e.g. mc image pull),
+#   set WAIT_MINIO_BUCKET_INIT=false to skip the 600s kubectl wait while still running ingest/batch when
+#   RUN_DATA_INGEST_JOBS=true. Classifier / MLflow serving do not depend on this Job completing.
 - name: Deploy ML data, serving, and training manifests
   hosts: chameleon
   become: true
@@ -41,6 +45,8 @@
     # Job.spec.template is immutable — delete first so manifest updates apply (may re-run register; new MLflow versions).
     replace_register_job_raw: "{{ lookup('env', 'REPLACE_REGISTER_JOB') | default('true', true) }}"
     replace_register_job: "{{ replace_register_job_raw | lower in ['1', 'true', 'yes', 'y'] }}"
+    wait_minio_bucket_init_raw: "{{ lookup('env', 'WAIT_MINIO_BUCKET_INIT') | default('true', true) }}"
+    wait_minio_bucket_init: "{{ wait_minio_bucket_init_raw | lower in ['1', 'true', 'yes', 'y'] }}"
   tasks:
     - name: Sync k8s manifests to VM
       ansible.builtin.copy:
@@ -165,6 +171,9 @@
         executable: /bin/bash
       when: not (run_data_ingest_jobs | bool)
 
+    # Full data path: by default wait for minio-bucket-init so ingest/batch see the bucket.
+    # Skip with WAIT_MINIO_BUCKET_INIT=false if the bucket already exists or the Job never completes (debug the Job separately).
+    # RUN_DATA_INGEST_JOBS=false skips this wait entirely (see header).
     - name: Wait for MinIO bucket init job (ml-data)
       ansible.builtin.shell: |
         set -euo pipefail
@@ -172,6 +181,12 @@
         kubectl --kubeconfig "{{ kubeconfig_path }}" wait --for=condition=complete job/minio-bucket-init -n ml-data --timeout=600s
       args:
         executable: /bin/bash
+      when: (run_data_ingest_jobs | bool) and (wait_minio_bucket_init | bool)
+
+    - name: Skipped MinIO bucket init wait — ensure zulip-rewriter exists before data Jobs need it
+      ansible.builtin.debug:
+        msg: "WAIT_MINIO_BUCKET_INIT=false (or light data path): not waiting on job/minio-bucket-init. If ingest fails, fix the Job or create the bucket manually."
+      when: (run_data_ingest_jobs | bool) and not (wait_minio_bucket_init | bool)
 
     - name: Re-run data ingest + batch jobs (ml-data)
       ansible.builtin.shell: |

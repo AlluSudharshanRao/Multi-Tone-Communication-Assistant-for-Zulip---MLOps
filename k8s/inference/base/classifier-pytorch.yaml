@@ -61,18 +61,22 @@ spec:
               value: "us-east-1"
             - name: AWS_S3_FORCE_PATH_STYLE
               value: "true"
+          # /ready = 503 until model thread finishes (see serving/classifier app.py).
           readinessProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: http
-            initialDelaySeconds: 15
-            periodSeconds: 10
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 120
           livenessProbe:
             httpGet:
               path: /health
               port: http
             initialDelaySeconds: 30
             periodSeconds: 20
+            timeoutSeconds: 5
           resources:
             # Staging (DUMMY_MODE) is light; prod/canary load PyTorch+MLflow models — keep >=2Gi limit.
             requests:
