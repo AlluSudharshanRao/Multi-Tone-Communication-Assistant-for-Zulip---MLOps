@@ -33,7 +33,206 @@ kubectl logs -n ml-training job/generator-training
 kubectl logs -n ml-training job/register-and-alias-latest
 ```
 
+## Retraining And Feedback Verification
+
+Use these checks to prove the feedback-to-retraining path is working.
+
+### 1. Confirm feedback was captured
+
+Feedback is written by `zulip-bridge` into MinIO under `feedback/YYYY-MM-DD/`.
+
+On the control-plane VM:
+
+```bash
+python3 - <<'PY'
+import boto3
+from botocore.client import Config
+
+s3 = boto3.client(
+    "s3",
+    endpoint_url="http://10.43.157.41:9000",
+    aws_access_key_id="minioadmin",
+    aws_secret_access_key="minio-password",
+    verify=False,
+    config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+)
+
+resp = s3.list_objects_v2(Bucket="zulip-rewriter", Prefix="feedback/")
+for obj in resp.get("Contents", []):
+    print(obj["Key"])
+PY
+```
+
+Expected result:
+
+- feedback objects exist under `feedback/YYYY-MM-DD/...`
+
+### 2. Confirm the batch pipeline merged feedback into training data
+
+The batch pipeline writes feedback summaries into MinIO and merges `preferred_text`
+rows into the next training set.
+
+```bash
+python3 - <<'PY'
+import boto3, json
+from botocore.client import Config
+
+s3 = boto3.client(
+    "s3",
+    endpoint_url="http://10.43.157.41:9000",
+    aws_access_key_id="minioadmin",
+    aws_secret_access_key="minio-password",
+    verify=False,
+    config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+)
+
+for key in [
+    "batch/2026-04-22/feedback_manifest.json",
+    "batch/v1_batch_2026-04-22/manifest.json",
+]:
+    try:
+        obj = s3.get_object(Bucket="zulip-rewriter", Key=key)
+        print(f"=== {key} ===")
+        print(json.dumps(json.loads(obj["Body"].read()), indent=2))
+    except Exception as exc:
+        print(f"{key}: {exc}")
+PY
+```
+
+Important fields:
+
+- `feedback_total_entries`
+- `feedback_usable_for_training`
+- `feedback_rows_merged`
+
+### 3. Confirm a retrain trigger record exists
+
+The retrain trigger writes records into MinIO under `triggers/YYYY-MM-DD/`.
+
+```bash
+python3 - <<'PY'
+import boto3
+from botocore.client import Config
+
+s3 = boto3.client(
+    "s3",
+    endpoint_url="http://10.43.157.41:9000",
+    aws_access_key_id="minioadmin",
+    aws_secret_access_key="minio-password",
+    verify=False,
+    config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+)
+
+resp = s3.list_objects_v2(Bucket="zulip-rewriter", Prefix="triggers/")
+for obj in resp.get("Contents", []):
+    print(obj["Key"])
+PY
+```
+
+Inspect one trigger:
+
+```bash
+python3 - <<'PY'
+import boto3, json
+from botocore.client import Config
+
+key = "triggers/2026-04-22/trigger_1776895765.json"
+
+s3 = boto3.client(
+    "s3",
+    endpoint_url="http://10.43.157.41:9000",
+    aws_access_key_id="minioadmin",
+    aws_secret_access_key="minio-password",
+    verify=False,
+    config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+)
+
+obj = s3.get_object(Bucket="zulip-rewriter", Key=key)
+print(json.dumps(json.loads(obj["Body"].read()), indent=2))
+PY
+```
+
+Important fields:
+
+- `reasons`
+- `metrics.new_feedback_count`
+- `metrics.approval_rate`
+- `processed`
+
+### 4. Confirm retraining is actively running
+
+```bash
+kubectl get jobs,pods -n ml-training
+kubectl get pods -n ml-training -w
+```
+
+During an active retrain cycle you should see:
+
+- `classifier-training`
+- `generator-training`
+- `register-and-alias-latest`
+
+### 5. Inspect the current retraining logs
+
+```bash
+kubectl logs -n ml-training job/classifier-training
+kubectl logs -n ml-training job/generator-training
+kubectl logs -n ml-training job/register-and-alias-latest
+```
+
+### 6. Confirm new MLflow runs were created
+
+Open MLflow and verify that the latest classifier and generator experiments have new
+run timestamps after the trigger time.
+
+### 7. Confirm alias updates
+
+After successful training and registration:
+
+- `tone-classifier@canary` should move to the newest good version
+- `tone-generator-lora@canary` should move to the newest good version
+- `prod` moves only if the promotion gates pass
+
+## How To See Already Completed Retraining
+
+If retraining already finished, `kubectl logs job/...` may no longer work because
+the Job or Pod can be garbage-collected. Use these sources instead:
+
+### MLflow
+
+Best source for completed retrains:
+
+- experiment history
+- metrics
+- parameters
+- run timestamps
+- registered model versions
+
+### MinIO
+
+Best source for trigger and dataset history:
+
+- `feedback/YYYY-MM-DD/...`
+- `batch/YYYY-MM-DD/feedback_manifest.json`
+- `batch/v1_batch_YYYY-MM-DD/manifest.json`
+- `triggers/YYYY-MM-DD/trigger_*.json`
+
+### Kubernetes
+
+Useful only while jobs still exist:
+
+```bash
+kubectl get jobs -n ml-training
+kubectl describe job classifier-training -n ml-training
+kubectl get events -n ml-training --sort-by='.lastTimestamp' | tail -50
+```
+
+If the job TTL has expired and the pod was removed, the durable history is MLflow and MinIO,
+not Kubernetes logs.
+
 ## Notes
 
 - The register job is applied from `register-bundle/` so the ConfigMap and Job stay aligned.
 - The current playbook waits for both training jobs and the register job to finish.
+- The retrain trigger runs in `ml-data` and writes trigger records into MinIO; the
+  GitHub workflow reacts to those records and launches the training jobs.

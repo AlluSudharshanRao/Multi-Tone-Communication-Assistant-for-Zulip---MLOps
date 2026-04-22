@@ -1,0 +1,267 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: retrain-trigger-code
+  namespace: ml-data
+  labels:
+    app: retrain-trigger
+    role: data
+data:
+  requirements.txt: |
+    boto3==1.34.69
+    requests==2.32.3
+  retrain_trigger.py: |
+    from __future__ import annotations
+
+    import json
+    import logging
+    import os
+    import sys
+    from datetime import datetime, timedelta, timezone
+
+    import boto3
+    import requests
+    from botocore.client import Config
+    from botocore.exceptions import ClientError
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    log = logging.getLogger("retrain_trigger")
+
+    MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "http://minio.ml-platform.svc.cluster.local:9000")
+    MINIO_BUCKET = os.environ.get("MINIO_BUCKET", "zulip-rewriter")
+    MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "")
+    MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "")
+    MLFLOW_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://mlflow.ml-platform.svc.cluster.local:5000")
+
+    DATA_TRIGGER_COUNT = int(os.environ.get("DATA_TRIGGER_COUNT", "500"))
+    QUALITY_THRESHOLD = float(os.environ.get("QUALITY_THRESHOLD", "0.70"))
+    DRIFT_THRESHOLD = float(os.environ.get("DRIFT_THRESHOLD", "0.60"))
+    LOOKBACK_DAYS = int(os.environ.get("LOOKBACK_DAYS", "7"))
+    DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
+
+    _WATERMARK_KEY = "triggers/last_retrain_watermark.json"
+
+
+    def _s3():
+        return boto3.client(
+            "s3",
+            endpoint_url=MINIO_ENDPOINT,
+            aws_access_key_id=MINIO_ACCESS_KEY,
+            aws_secret_access_key=MINIO_SECRET_KEY,
+            verify=False,
+            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+        )
+
+
+    def _list_prefix(s3_client, prefix: str) -> list[dict]:
+        paginator = s3_client.get_paginator("list_objects_v2")
+        keys = []
+        for page in paginator.paginate(Bucket=MINIO_BUCKET, Prefix=prefix):
+            keys.extend(page.get("Contents", []))
+        return keys
+
+
+    def _read_json(s3_client, key: str) -> dict:
+        obj = s3_client.get_object(Bucket=MINIO_BUCKET, Key=key)
+        return json.loads(obj["Body"].read())
+
+
+    def _write_json(s3_client, key: str, data: dict) -> None:
+        s3_client.put_object(
+            Bucket=MINIO_BUCKET,
+            Key=key,
+            Body=json.dumps(data, indent=2).encode(),
+            ContentType="application/json",
+        )
+
+
+    def _load_watermark(s3_client) -> dict:
+        try:
+            return _read_json(s3_client, _WATERMARK_KEY)
+        except ClientError:
+            return {"last_retrain_at": None, "feedback_count_at_retrain": 0}
+
+
+    def _save_watermark(s3_client, data: dict) -> None:
+        _write_json(s3_client, _WATERMARK_KEY, data)
+
+
+    def _count_recent_feedback(s3_client, since: datetime) -> tuple[int, float | None]:
+        cutoff = since.strftime("%Y-%m-%d")
+        total, approved = 0, 0
+        for obj_meta in _list_prefix(s3_client, "batch/"):
+            key = obj_meta["Key"]
+            if not key.endswith("feedback_manifest.json"):
+                continue
+            parts = key.split("/")
+            if len(parts) < 2:
+                continue
+            batch_dir = parts[1]
+            if "_batch_" in batch_dir:
+                batch_date = batch_dir.split("_batch_")[-1]
+            else:
+                batch_date = batch_dir
+            if batch_date < cutoff:
+                continue
+            try:
+                manifest = _read_json(s3_client, key)
+                manifest_total = int(manifest.get("feedback_total_entries", 0) or 0)
+                manifest_approval = float(manifest.get("approval_rate", 0) or 0)
+                total += manifest_total
+                approved += round(manifest_total * manifest_approval)
+            except Exception as exc:
+                log.warning("Could not read %s: %s", key, exc)
+
+        approval_rate = round(approved / max(total, 1), 4) if total > 0 else None
+        return total, approval_rate
+
+
+    def _get_production_model_f1(mlflow_uri: str) -> float | None:
+        try:
+            resp = requests.get(
+                f"{mlflow_uri}/api/2.0/mlflow/experiments/search",
+                params={"filter": "name = 'teamchat_tone_clf'", "max_results": 1},
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                return None
+            exps = resp.json().get("experiments", [])
+            if not exps:
+                return None
+            exp_id = exps[0]["experiment_id"]
+
+            runs_resp = requests.post(
+                f"{mlflow_uri}/api/2.0/mlflow/runs/search",
+                json={
+                    "experiment_ids": [exp_id],
+                    "filter": "tags.mlflow.runName = 'production' OR tags.alias = 'prod'",
+                    "max_results": 1,
+                    "order_by": ["start_time DESC"],
+                },
+                timeout=10,
+            )
+            if runs_resp.status_code != 200:
+                return None
+            runs = runs_resp.json().get("runs", [])
+            if not runs:
+                runs_resp2 = requests.post(
+                    f"{mlflow_uri}/api/2.0/mlflow/runs/search",
+                    json={
+                        "experiment_ids": [exp_id],
+                        "filter": "status = 'FINISHED'",
+                        "max_results": 1,
+                        "order_by": ["start_time DESC"],
+                    },
+                    timeout=10,
+                )
+                runs = runs_resp2.json().get("runs", []) if runs_resp2.status_code == 200 else []
+            if not runs:
+                return None
+
+            metrics = {m["key"]: m["value"] for m in runs[0].get("data", {}).get("metrics", [])}
+            return float(metrics.get("eval_f1") or metrics.get("f1") or metrics.get("test_f1") or 0)
+        except Exception as exc:
+            log.warning("MLflow query failed (non-fatal): %s", exc)
+            return None
+
+
+    def main() -> None:
+        log.info("=== Retrain trigger evaluation ===")
+        log.info(
+            "Thresholds: data=%d quality=%.2f drift=%.2f lookback=%dd dry_run=%s",
+            DATA_TRIGGER_COUNT,
+            QUALITY_THRESHOLD,
+            DRIFT_THRESHOLD,
+            LOOKBACK_DAYS,
+            DRY_RUN,
+        )
+
+        s3 = _s3()
+        now = datetime.now(timezone.utc)
+        since = now - timedelta(days=LOOKBACK_DAYS)
+
+        watermark = _load_watermark(s3)
+        log.info("Watermark: %s", watermark)
+
+        recent_feedback, approval_rate = _count_recent_feedback(s3, since)
+        prev_count = watermark.get("feedback_count_at_retrain", 0)
+        new_feedback = max(0, recent_feedback - prev_count)
+        data_triggered = new_feedback >= DATA_TRIGGER_COUNT
+        log.info(
+            "DATA_TRIGGER: new_feedback=%d threshold=%d -> %s",
+            new_feedback,
+            DATA_TRIGGER_COUNT,
+            "FIRE" if data_triggered else "ok",
+        )
+
+        quality_triggered = False
+        if approval_rate is not None:
+            quality_triggered = approval_rate < QUALITY_THRESHOLD
+        log.info(
+            "QUALITY_TRIGGER: approval_rate=%s threshold=%.2f -> %s",
+            approval_rate,
+            QUALITY_THRESHOLD,
+            "FIRE" if quality_triggered else "ok",
+        )
+
+        prod_f1 = _get_production_model_f1(MLFLOW_URI)
+        drift_triggered = False
+        if prod_f1 is not None:
+            drift_triggered = prod_f1 < DRIFT_THRESHOLD
+        log.info(
+            "DRIFT_TRIGGER: prod_f1=%s threshold=%.2f -> %s",
+            prod_f1,
+            DRIFT_THRESHOLD,
+            "FIRE" if drift_triggered else "ok",
+        )
+
+        fires = {
+            "data": data_triggered,
+            "quality": quality_triggered,
+            "drift": drift_triggered,
+        }
+        if not any(fires.values()):
+            log.info("No trigger conditions met -> no retrain needed.")
+            sys.exit(0)
+
+        reasons = [k for k, v in fires.items() if v]
+        log.info("RETRAIN TRIGGERED by: %s", reasons)
+
+        trigger_record = {
+            "triggered_at": now.isoformat(),
+            "reasons": reasons,
+            "metrics": {
+                "new_feedback_count": new_feedback,
+                "approval_rate": approval_rate,
+                "production_f1": prod_f1,
+            },
+            "thresholds": {
+                "data_trigger_count": DATA_TRIGGER_COUNT,
+                "quality_threshold": QUALITY_THRESHOLD,
+                "drift_threshold": DRIFT_THRESHOLD,
+            },
+            "processed": False,
+        }
+
+        trigger_key = f"triggers/{now.strftime('%Y-%m-%d')}/trigger_{int(now.timestamp())}.json"
+
+        if DRY_RUN:
+            log.info("DRY_RUN -> would write: %s\n%s", trigger_key, json.dumps(trigger_record, indent=2))
+            sys.exit(0)
+
+        _write_json(s3, trigger_key, trigger_record)
+        log.info("Trigger record written: %s", trigger_key)
+        _save_watermark(
+            s3,
+            {
+                "last_retrain_at": now.isoformat(),
+                "feedback_count_at_retrain": recent_feedback,
+            },
+        )
+        log.info("Retrain trigger persisted successfully.")
+        sys.exit(0)
+
+
+    if __name__ == "__main__":
+        main()
