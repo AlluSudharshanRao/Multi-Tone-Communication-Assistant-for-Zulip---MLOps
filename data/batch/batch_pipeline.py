@@ -4,9 +4,9 @@ from io import BytesIO
 from botocore.client import Config
 
 BUCKET     = os.getenv("MINIO_BUCKET",     "zulip-rewriter")
-ENDPOINT   = os.getenv("MINIO_ENDPOINT", "https://129.114.27.192.nip.io")
-ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "")
-SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "")
+ENDPOINT   = os.getenv("MINIO_ENDPOINT",   "http://minio.ml-platform.svc.cluster.local:9000")
+ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")
+SECRET_KEY = os.getenv("MINIO_SECRET_KEY")
 if not ACCESS_KEY or not SECRET_KEY:
     raise RuntimeError("MINIO_ACCESS_KEY and MINIO_SECRET_KEY must be set (injected from minio-root Secret in K8s)")
 VERSION    = os.getenv("DATA_VERSION",     "v1")

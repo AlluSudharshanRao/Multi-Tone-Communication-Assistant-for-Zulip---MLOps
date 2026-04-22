@@ -1,18 +1,16 @@
 ---
 # Installs Helm if missing, then helm upgrade --install for docker-zulip chart.
-# Pass -e zulip_chart_dir=... and values files; see infra/ansible/README.md.
-# Run: ansible-playbook -i ../inventory.ini playbooks/deploy_zulip.yml -e ...
 - name: Deploy Zulip via Helm chart (docker-zulip)
-  hosts: chameleon
+  hosts: control_plane
   become: true
   gather_facts: false
   vars:
     kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
+    public_floating_ip: "{{ hostvars[groups['control_plane'][0]].ansible_host }}"
+    zulip_external_host: "zulip.{{ public_floating_ip }}.nip.io"
     project_id_suffix: "proj15"
     release_name: "zulip-{{ project_id_suffix }}"
     zulip_k8s_namespace: "zulip"
-
-    # Provide at runtime with -e
     zulip_chart_dir: ""
     zulip_values_file: ""
     zulip_secret_values_file: ""
@@ -51,7 +49,6 @@
         path: "{{ zulip_chart_dir }}"
       register: zulip_chart_stat
 
-    # Default layout: zulip_chart_dir = /home/<cc>/docker-zulip/helm/zulip — clone parent repo if missing.
     - name: Clone docker-zulip chart source (if chart path missing)
       when: not zulip_chart_stat.stat.exists
       become_user: "{{ ansible_user }}"
@@ -60,14 +57,54 @@
         dest: "{{ zulip_chart_dir | dirname | dirname }}"
         depth: 1
 
+    - name: Update SETTING_EXTERNAL_HOST in Zulip secret values
+      ansible.builtin.shell: |
+        python3 - <<'PY'
+        from pathlib import Path
+        import re
+
+        path = Path("{{ zulip_secret_values_file }}")
+        data = path.read_bytes()
+        updated = re.sub(
+            br'SETTING_EXTERNAL_HOST:\s*".*"',
+            b'SETTING_EXTERNAL_HOST: "{{ zulip_external_host }}"',
+            data,
+        )
+        if updated != data:
+            path.write_bytes(updated)
+        PY
+      args:
+        executable: /bin/bash
+      when: zulip_secret_values_file | length > 0
+
+    - name: Normalize Zulip secret values file to UTF-8 for Helm
+      ansible.builtin.shell: |
+        python3 - <<'PY'
+        from pathlib import Path
+
+        path = Path("{{ zulip_secret_values_file }}")
+        raw = path.read_bytes()
+        for encoding in ("utf-8", "cp1252", "latin-1"):
+            try:
+                text = raw.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            raise RuntimeError(f"Unable to decode {path}")
+        path.write_text(text, encoding="utf-8", newline="\n")
+        PY
+      args:
+        executable: /bin/bash
+      when: zulip_secret_values_file | length > 0
+
     - name: Update chart dependencies
       ansible.builtin.command: helm dependency update {{ zulip_chart_dir }}
 
-    - name: Install/upgrade Zulip chart
+    - name: Install or upgrade Zulip chart
       ansible.builtin.command: >
         helm upgrade --install {{ release_name }} {{ zulip_chart_dir }}
         --namespace {{ zulip_k8s_namespace }}
         --kubeconfig {{ kubeconfig_path }}
         {% if zulip_values_file | length > 0 %}-f {{ zulip_values_file }}{% endif %}
         {% if zulip_secret_values_file | length > 0 %}-f {{ zulip_secret_values_file }}{% endif %}
-
