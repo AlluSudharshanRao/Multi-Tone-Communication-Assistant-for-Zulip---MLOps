@@ -46,8 +46,7 @@ spec:
             - name: dashboard-provider
               mountPath: /etc/grafana/provisioning/dashboards
             - name: dashboard-ml-serving
-              mountPath: /etc/grafana/provisioning/dashboards/mlops/ml-serving-tone.json
-              subPath: ml-serving-tone.json
+              mountPath: /etc/grafana/provisioning/dashboards/mlops
           resources:
             requests:
               cpu: "100m"
