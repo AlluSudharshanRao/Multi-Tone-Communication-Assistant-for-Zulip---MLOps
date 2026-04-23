@@ -19,8 +19,6 @@ spec:
         prometheus.io/port: "9100"
         prometheus.io/path: /metrics
     spec:
-      hostNetwork: true
-      hostPID: true
       tolerations:
         - operator: Exists
       containers:
@@ -34,7 +32,6 @@ spec:
           ports:
             - name: metrics
               containerPort: 9100
-              hostPort: 9100
           securityContext:
             privileged: true
           volumeMounts:
