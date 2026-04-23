@@ -8,9 +8,7 @@ This is a practical monitoring structure for the data layer in your repository:
 - `data/online`: feature extraction and online logging
 - `data/retrain_trigger`: retraining policy based on quality and drift proxies
 
-## Suggested repo placement
-
-If you want to merge this into your repository, a clean home would be:
+## Architecture
 
 ```text
 monitoring/
