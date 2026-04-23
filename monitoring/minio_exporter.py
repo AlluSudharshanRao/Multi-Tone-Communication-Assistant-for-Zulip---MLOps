@@ -19,7 +19,7 @@ SCAN_DURATION       = Histogram('data_scan_duration_seconds', 'Time to scan a fi
 LAST_SCAN_TIMESTAMP = Gauge('data_last_scan_timestamp', 'Unix timestamp of last scan', ['bucket'])
 
 BUCKET = os.getenv('MINIO_BUCKET', 'zulip-rewriter')
-MINIO_ENDPOINT = os.getenv('MINIO_ENDPOINT', '129.114.27.192.nip.io') 
+MINIO_ENDPOINT = os.getenv('MINIO_ENDPOINT') 
 ACCESS_KEY = os.getenv('MINIO_ACCESS_KEY')
 SECRET_KEY = os.getenv('MINIO_SECRET_KEY')
 
