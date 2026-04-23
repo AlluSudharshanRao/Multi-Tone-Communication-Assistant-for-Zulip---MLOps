@@ -13,9 +13,9 @@ spec:
   tls:
     - secretName: chameleon-nip-tls
       hosts:
-        - grafana.129.114.27.192.nip.io
+        - grafana.129.114.26.185.nip.io
   rules:
-    - host: grafana.129.114.27.192.nip.io
+    - host: grafana.129.114.26.185.nip.io
       http:
         paths:
           - path: /

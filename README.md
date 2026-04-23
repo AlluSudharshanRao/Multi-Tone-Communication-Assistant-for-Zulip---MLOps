@@ -23,12 +23,88 @@ This repository contains the infrastructure, Kubernetes manifests, training code
   - `ml-training`: training jobs and registry jobs
   - `ml-serving`: classifier, generator, bridge, ingress
 
+## End-To-End Architecture
+
+```mermaid
+flowchart TB
+    subgraph Frontend["Frontend / User Layer"]
+        U["Zulip compose UI"]
+    end
+
+    subgraph Inference["Live Inference Layer"]
+        B["Zulip Bridge"]
+        G["Generator Service"]
+        C["Classifier Service"]
+    end
+
+    subgraph Storage["Shared State / Artifacts"]
+        M["MinIO"]
+        ML["MLflow"]
+    end
+
+    subgraph Data["Data Pipeline"]
+        BP["Batch Pipeline"]
+        RT["Retrain Trigger"]
+    end
+
+    subgraph Train["Training / Registry"]
+        CT["Classifier Training Job"]
+        GT["Generator Training Job"]
+        RG["Register + Alias Job"]
+    end
+
+    subgraph Automation["Automation / Deploy"]
+        GA["GitHub Actions retrain-on-trigger.yml"]
+        SRV["Serving Deployments<br/>staging / canary / prod"]
+    end
+
+    U --> B
+    B --> G
+    G --> C
+    C --> G
+    G --> B
+    B --> U
+
+    B --> M
+    BP --> M
+    RT --> M
+    CT --> M
+    GT --> M
+
+    CT --> ML
+    GT --> ML
+    RG --> ML
+
+    M --> BP
+    M --> RT
+    ML --> RT
+    M --> GA
+    GA --> BP
+    GA --> CT
+    GA --> GT
+    GA --> RG
+    RG --> SRV
+    SRV --> G
+    SRV --> C
+```
+
+High-level request path:
+
+1. User types a draft in Zulip and clicks `Tone suggestions`.
+2. The Zulip bridge forwards the draft to the generator service.
+3. The generator uses the classifier-backed serving stack to produce `formal`, `friendly`, and `neutral` variants.
+4. Suggestions are shown in Zulip.
+5. User actions and edits are persisted as feedback in MinIO.
+6. Batch and retraining automation use that feedback to build new datasets, train new models, register them in MLflow, and update serving aliases.
+
 ## Documentation map
 
 - [GETTING_STARTED.md](C:\Users\sudha\OneDrive\Desktop\MLOps\Multi-Tone-Communication-Assistant-for-Zulip---MLOps\GETTING_STARTED.md): full bring-up order
 - [ARCHITECTURE.md](C:\Users\sudha\OneDrive\Desktop\MLOps\Multi-Tone-Communication-Assistant-for-Zulip---MLOps\ARCHITECTURE.md): system layout and runtime flow
+- [PIPELINE.md](C:\Users\sudha\OneDrive\Desktop\MLOps\Multi-Tone-Communication-Assistant-for-Zulip---MLOps\PIPELINE.md): full user-to-serving-to-feedback-to-retraining walkthrough
 - [infra/README.md](C:\Users\sudha\OneDrive\Desktop\MLOps\Multi-Tone-Communication-Assistant-for-Zulip---MLOps\infra\README.md): infrastructure entry point
 - [k8s/README.md](C:\Users\sudha\OneDrive\Desktop\MLOps\Multi-Tone-Communication-Assistant-for-Zulip---MLOps\k8s\README.md): Kubernetes manifest map
+- [k8s/training/README.md](C:\Users\sudha\OneDrive\Desktop\MLOps\Multi-Tone-Communication-Assistant-for-Zulip---MLOps\k8s\training\README.md): training, retraining, feedback, and registry verification
 - [serving/README.md](C:\Users\sudha\OneDrive\Desktop\MLOps\Multi-Tone-Communication-Assistant-for-Zulip---MLOps\serving\README.md): serving stack and smoke tests
 - [training_proj15-main/README.md](C:\Users\sudha\OneDrive\Desktop\MLOps\Multi-Tone-Communication-Assistant-for-Zulip---MLOps\training_proj15-main\README.md): training code and MLflow flow
 - [SECURITY.md](C:\Users\sudha\OneDrive\Desktop\MLOps\Multi-Tone-Communication-Assistant-for-Zulip---MLOps\SECURITY.md): secrets and public-repo hygiene
