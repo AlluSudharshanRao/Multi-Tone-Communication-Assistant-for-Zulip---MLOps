@@ -5,6 +5,8 @@ kind: Kustomization
 namespace: monitoring
 resources:
   - rbac.yaml
+  - deployment-kube-state-metrics.yaml
+  - daemonset-node-exporter.yaml
   - configmap-prometheus.yaml
   - configmap-alertmanager.yaml
   - pvc-prometheus.yaml
@@ -24,3 +26,4 @@ configMapGenerator:
       disableNameSuffixHash: true
     files:
       - dashboards/ml-serving-tone.json
+      - dashboards/infra-health.json

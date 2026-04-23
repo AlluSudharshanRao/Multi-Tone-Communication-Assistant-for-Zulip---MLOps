@@ -55,6 +55,19 @@ data:
 
   serving.rules.yml: |
     groups:
+      - name: platform_watchdog
+        interval: 30s
+        rules:
+          - alert: Watchdog
+            expr: vector(1)
+            for: 1m
+            labels:
+              severity: none
+              component: platform
+            annotations:
+              summary: "Watchdog"
+              description: "Synthetic always-firing alert to verify the alert pipeline."
+
       - name: serving_tone_services
         interval: 30s
         rules:
@@ -115,6 +128,56 @@ data:
       - name: platform_observability
         interval: 30s
         rules:
+          - alert: PlatformNodeNotReady
+            expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+            for: 2m
+            labels:
+              severity: critical
+              component: platform
+            annotations:
+              summary: "Kubernetes node is not ready"
+              description: "At least one cluster node has been non-ready for more than 2 minutes."
+
+          - alert: PlatformDeploymentUnavailableReplicas
+            expr: sum(kube_deployment_status_replicas_unavailable{namespace=~"ml-platform|monitoring|zulip|ml-serving"}) > 0
+            for: 2m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "Unavailable replicas detected"
+              description: "One or more tracked deployments have unavailable replicas."
+
+          - alert: PlatformPodRestartsHigh
+            expr: sum(increase(kube_pod_container_status_restarts_total{namespace=~"ml-platform|monitoring|zulip|ml-serving"}[15m])) > 3
+            for: 5m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "Pod restart rate is elevated"
+              description: "Tracked namespaces have seen more than 3 container restarts in 15 minutes."
+
+          - alert: PlatformNodeCpuHigh
+            expr: 100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 85
+            for: 5m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "Node CPU usage is high"
+              description: "A node has sustained CPU usage above 85% for 5 minutes."
+
+          - alert: PlatformNodeMemoryHigh
+            expr: 100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 90
+            for: 5m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "Node memory usage is high"
+              description: "A node has sustained memory usage above 90% for 5 minutes."
+
           - alert: PrometheusConfigLastReloadFailed
             expr: prometheus_config_last_reload_successful != 1
             for: 5m

@@ -22,6 +22,11 @@
     minio_root_user: "minioadmin"
     minio_root_password: "{{ lookup('env', 'MINIO_ROOT_PASSWORD') | default('minio-password', true) }}"
     grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') | default('grafana-password', true) }}"
+    alert_email_to: "{{ lookup('env', 'ALERT_EMAIL_TO') | default('', true) }}"
+    alert_email_from: "{{ lookup('env', 'ALERT_EMAIL_FROM') | default('', true) }}"
+    alert_email_smarthost: "{{ lookup('env', 'ALERT_EMAIL_SMARTHOST') | default('', true) }}"
+    alert_email_auth_username: "{{ lookup('env', 'ALERT_EMAIL_AUTH_USERNAME') | default('', true) }}"
+    alert_email_auth_password: "{{ lookup('env', 'ALERT_EMAIL_AUTH_PASSWORD') | default('', true) }}"
   tasks:
     - name: Ensure git is installed
       ansible.builtin.package:
@@ -110,6 +115,25 @@
         kubectl --kubeconfig {{ kubeconfig_path }} apply -f -
       args:
         executable: /bin/bash
+      no_log: true
+
+    - name: Inject Alertmanager SMTP settings into observability config on VM
+      ansible.builtin.replace:
+        path: "{{ repo_root }}/k8s/platform/observability/configmap-alertmanager.yaml"
+        regexp: "{{ item.placeholder }}"
+        replace: "{{ item.value }}"
+      loop:
+        - { placeholder: "ALERT_EMAIL_TO", value: "{{ alert_email_to | default('', true) }}" }
+        - { placeholder: "ALERT_EMAIL_FROM", value: "{{ alert_email_from | default('', true) }}" }
+        - { placeholder: "ALERT_EMAIL_SMARTHOST", value: "{{ alert_email_smarthost | default('', true) }}" }
+        - { placeholder: "ALERT_EMAIL_AUTH_USERNAME", value: "{{ alert_email_auth_username | default('', true) }}" }
+        - { placeholder: "ALERT_EMAIL_AUTH_PASSWORD", value: "{{ alert_email_auth_password | default('', true) }}" }
+      when:
+        - alert_email_to | length > 0
+        - alert_email_from | length > 0
+        - alert_email_smarthost | length > 0
+        - alert_email_auth_username | length > 0
+        - alert_email_auth_password | length > 0
       no_log: true
 
     - name: Apply Prometheus and Grafana kustomize

@@ -6,12 +6,12 @@ Evaluates three independent trigger conditions:
   DATA_TRIGGER:    New feedback entries since last retrain >= DATA_TRIGGER_COUNT (default 500).
   QUALITY_TRIGGER: Rolling 7-day feedback approval rate < QUALITY_THRESHOLD (default 0.70).
                    Approval = (thumbs_up + selected) / total_feedback.
-  DRIFT_TRIGGER:   Mean classifier confidence (from batch feedback_manifest) < DRIFT_THRESHOLD
-                   (default 0.60) — proxy for input distribution shift.
+  DRIFT_TRIGGER:   Latest production classifier F1 < DRIFT_THRESHOLD
+                   (default 0.60) as a conservative retraining proxy.
 
 If ANY condition fires:
   1. Writes a trigger record to MinIO:  triggers/YYYY-MM-DD/trigger_{ts}.json
-  2. Exits with code 10 so the K8s CronJob can surface it as a non-zero exit.
+  2. Exits 0 after persisting the trigger record.
      The GitHub Actions retrain-on-trigger.yml checks for new trigger records and
      applies k8s/training/ jobs + k8s/training/register-bundle/.
 
@@ -59,9 +59,6 @@ QUALITY_THRESHOLD  = float(os.environ.get("QUALITY_THRESHOLD", "0.70"))
 DRIFT_THRESHOLD    = float(os.environ.get("DRIFT_THRESHOLD",   "0.60"))
 LOOKBACK_DAYS      = int(os.environ.get("LOOKBACK_DAYS",       "7"))
 DRY_RUN            = os.environ.get("DRY_RUN", "false").lower() == "true"
-
-TRIGGER_EXIT_CODE = 10   # non-zero so CronJob/CI can detect trigger
-
 
 # ---------------------------------------------------------------------------
 # MinIO helpers
@@ -123,29 +120,33 @@ def _save_watermark(s3_client, data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def _count_recent_feedback(s3_client, since: datetime) -> tuple[int, float | None]:
-    """Return (total_count_since, approval_rate_or_None) from batch feedback_manifests."""
+    """Return (total_count_since, approval_rate_or_None) from batch feedback manifests."""
     cutoff = since.strftime("%Y-%m-%d")
     total, approved = 0, 0
-    # Read daily batch feedback_manifest.json files produced by batch_pipeline.py
+    # Read daily feedback manifests produced by batch_pipeline.py.
+    # Supported layouts:
+    #   batch/YYYY-MM-DD/feedback_manifest.json
+    #   batch/v1_batch_YYYY-MM-DD/feedback_manifest.json
     for obj_meta in _list_prefix(s3_client, "batch/"):
         key = obj_meta["Key"]
         if not key.endswith("feedback_manifest.json"):
             continue
-        # Key pattern: batch/{VERSION}_batch_{YYYY-MM-DD}/feedback_manifest.json
-        # Extract date from path
         parts = key.split("/")
         if len(parts) < 2:
             continue
-        batch_dir = parts[1]  # e.g. v1_batch_2026-04-20
-        batch_date = batch_dir.split("_batch_")[-1] if "_batch_" in batch_dir else ""
+        batch_dir = parts[1]
+        if "_batch_" in batch_dir:
+            batch_date = batch_dir.split("_batch_")[-1]
+        else:
+            batch_date = batch_dir
         if batch_date < cutoff:
             continue
         try:
             manifest = _read_json(s3_client, key)
-            total    += manifest.get("feedback_total_entries", 0)
-            approved += manifest.get("thumbs_up", 0)
-            approved += int(manifest.get("feedback_total_entries", 0) *
-                            (manifest.get("approval_rate", 0) or 0))
+            manifest_total = int(manifest.get("feedback_total_entries", 0) or 0)
+            manifest_approval = float(manifest.get("approval_rate", 0) or 0)
+            total += manifest_total
+            approved += round(manifest_total * manifest_approval)
         except Exception as exc:
             log.warning("Could not read %s: %s", key, exc)
 
@@ -299,9 +300,8 @@ def main() -> None:
         "last_retrain_at": now.isoformat(),
         "feedback_count_at_retrain": recent_feedback,
     })
-
-    log.info("Exiting with code %d so CI can detect this trigger.", TRIGGER_EXIT_CODE)
-    sys.exit(TRIGGER_EXIT_CODE)
+    log.info("Retrain trigger persisted successfully.")
+    sys.exit(0)
 
 
 if __name__ == "__main__":

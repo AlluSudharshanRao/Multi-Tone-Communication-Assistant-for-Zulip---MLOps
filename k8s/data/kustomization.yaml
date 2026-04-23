@@ -7,6 +7,7 @@ namespace: ml-data
 resources:
   - data-ingest-configmap.yaml
   - data-batch-configmap.yaml
+  - retrain-trigger-configmap.yaml
   - minio-bucket-init-job.yaml
   - data-online-service.yaml
   - data-online-deployment.yaml

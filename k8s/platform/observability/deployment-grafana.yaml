@@ -35,7 +35,7 @@ spec:
                   name: grafana-admin
                   key: admin-password
             - name: GF_SERVER_ROOT_URL
-              value: https://grafana.129.114.27.192.nip.io/
+              value: https://grafana.129.114.26.185.nip.io/
             - name: GF_INSTALL_PLUGINS
               value: ""
           volumeMounts:

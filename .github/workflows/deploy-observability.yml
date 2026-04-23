@@ -1,7 +1,9 @@
 # Auto-apply Prometheus + Grafana manifests whenever observability config changes on main.
 # Also triggered manually (workflow_dispatch) so DevOps can re-apply after infra changes.
-# Requires repository secret KUBE_CONFIG_B64 (base64 of a kubeconfig with rights to
-# the monitoring namespace — same secret used by promote-inference.yml).
+# Requires repository secret KUBE_CONFIG_B64 with a kubeconfig that has rights to
+# the monitoring namespace. The secret may contain either:
+#   - the raw kubeconfig YAML
+#   - a base64-encoded kubeconfig
 #
 # What this automates:
 #   1. kubectl apply -k k8s/platform/observability/  — picks up Prometheus config,
@@ -39,10 +41,20 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${KUBE_CONFIG_B64:-}" ]; then
-            echo "::error::Missing repository secret KUBE_CONFIG_B64 (base64-encoded kubeconfig with access to the monitoring namespace)."
+            echo "::error::Missing repository secret KUBE_CONFIG_B64 (raw kubeconfig or base64-encoded kubeconfig with access to the monitoring namespace)."
             exit 1
           fi
-          echo "$KUBE_CONFIG_B64" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+
+          # Accept either a raw kubeconfig or a base64-encoded kubeconfig.
+          if printf '%s' "$KUBE_CONFIG_B64" | grep -qE '^(apiVersion:|kind: Config|clusters:|users:|contexts:|current-context:)'; then
+            printf '%s\n' "$KUBE_CONFIG_B64" > "$RUNNER_TEMP/kubeconfig"
+          elif printf '%s' "$KUBE_CONFIG_B64" | tr -d '\r\n\t ' | base64 -d > "$RUNNER_TEMP/kubeconfig" 2>/dev/null; then
+            true
+          else
+            echo "::error::KUBE_CONFIG_B64 is neither valid base64 nor a raw kubeconfig YAML."
+            exit 1
+          fi
+
           chmod 600 "$RUNNER_TEMP/kubeconfig"
 
       - name: Apply observability manifests
