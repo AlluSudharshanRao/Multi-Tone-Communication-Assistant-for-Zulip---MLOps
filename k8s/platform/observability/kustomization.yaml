@@ -12,6 +12,7 @@ resources:
   - pvc-prometheus.yaml
   - deployment-prometheus.yaml
   - deployment-alertmanager.yaml
+  - deployment-data-quality-exporter.yaml
   - configmap-grafana-datasources.yaml
   - configmap-grafana-dashboard-provider.yaml
   - pvc-grafana.yaml
@@ -27,3 +28,4 @@ configMapGenerator:
     files:
       - dashboards/ml-serving-tone.json
       - dashboards/infra-health.json
+      - dashboards/data-quality.json

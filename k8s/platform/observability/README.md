@@ -43,6 +43,12 @@ Grafana provisions the `MLOps` folder automatically. The current dashboards are:
   - deployment replica availability
   - pod restart behavior
   - Kubernetes node readiness
+- `Data Quality Health`
+  - raw and batch row counts
+  - null, duplicate, and invalid-label signals
+  - online log volume and error rate
+  - feedback approval and preferred-text rates
+  - drift PSI and batch merge volume
 
 If dashboards are changed, re-apply:
 
@@ -67,6 +73,13 @@ Current serving alerts:
 
 - `ServingHighP95Latency`
 - `ServingHigh5xxRate`
+
+Current data quality alerts:
+
+- `DataQualityExporterDown`
+- `DataQualityApprovalRateLow`
+- `DataQualityOnlineErrorRateHigh`
+- `DataQualityDriftHigh`
 
 Alertmanager supports SMTP email delivery through deployment-time variable injection. Set these before running `deploy_platform.yml`:
 
