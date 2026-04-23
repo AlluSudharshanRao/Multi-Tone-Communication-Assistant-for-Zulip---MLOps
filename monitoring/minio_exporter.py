@@ -32,7 +32,7 @@ http_client = urllib3.PoolManager(
     assert_hostname=False
 )
 client = Minio(
-    "minio.129.114.27.192.nip.io", # Use the host without https:// prefix
+    MINIO_ENDPOINT,
     access_key=ACCESS_KEY,
     secret_key=SECRET_KEY,
     secure=True, # Set to False to bypass the SSL certificate requirement
