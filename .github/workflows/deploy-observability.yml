@@ -1,9 +1,10 @@
 # Auto-apply Prometheus + Grafana manifests whenever observability config changes on main.
 # Also triggered manually (workflow_dispatch) so DevOps can re-apply after infra changes.
 # Requires repository secret KUBE_CONFIG_B64 with a kubeconfig that has rights to
-# the monitoring namespace. The secret may contain either:
+# the monitoring namespace. The secret may contain:
 #   - the raw kubeconfig YAML
 #   - a base64-encoded kubeconfig
+#   - a single-line kubeconfig string with escaped newlines
 #
 # What this automates:
 #   1. kubectl apply -k k8s/platform/observability/  — picks up Prometheus config,
@@ -41,19 +42,60 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${KUBE_CONFIG_B64:-}" ]; then
-            echo "::error::Missing repository secret KUBE_CONFIG_B64 (raw kubeconfig or base64-encoded kubeconfig with access to the monitoring namespace)."
+            echo "::error::Missing repository secret KUBE_CONFIG_B64 (raw kubeconfig, escaped kubeconfig string, or base64-encoded kubeconfig with access to the monitoring namespace)."
             exit 1
           fi
 
-          # Accept either a raw kubeconfig or a base64-encoded kubeconfig.
-          if printf '%s' "$KUBE_CONFIG_B64" | grep -qE '^(apiVersion:|kind: Config|clusters:|users:|contexts:|current-context:)'; then
-            printf '%s\n' "$KUBE_CONFIG_B64" > "$RUNNER_TEMP/kubeconfig"
-          elif printf '%s' "$KUBE_CONFIG_B64" | tr -d '\r\n\t ' | base64 -d > "$RUNNER_TEMP/kubeconfig" 2>/dev/null; then
-            true
-          else
-            echo "::error::KUBE_CONFIG_B64 is neither valid base64 nor a raw kubeconfig YAML."
-            exit 1
-          fi
+          python3 - <<'PY'
+          import base64
+          import os
+          import pathlib
+          import sys
+
+          raw = os.environ["KUBE_CONFIG_B64"]
+          out = pathlib.Path(os.environ["RUNNER_TEMP"]) / "kubeconfig"
+
+          def looks_like_kubeconfig(text: str) -> bool:
+              markers = (
+                  "apiVersion:",
+                  "kind: Config",
+                  "clusters:",
+                  "users:",
+                  "contexts:",
+                  "current-context:",
+              )
+              stripped = text.lstrip()
+              return any(marker in stripped for marker in markers)
+
+          candidates: list[str] = [raw]
+
+          stripped_quotes = raw.strip().strip("'").strip('"')
+          if stripped_quotes != raw:
+              candidates.append(stripped_quotes)
+
+          escaped = stripped_quotes.replace("\\r\\n", "\n").replace("\\n", "\n")
+          if escaped != stripped_quotes:
+              candidates.append(escaped)
+
+          compact = "".join(raw.split())
+          if compact:
+              try:
+                  decoded = base64.b64decode(compact, validate=True).decode("utf-8")
+                  candidates.append(decoded)
+              except Exception:
+                  pass
+
+          for candidate in candidates:
+              if looks_like_kubeconfig(candidate):
+                  out.write_text(candidate.rstrip() + "\n", encoding="utf-8")
+                  sys.exit(0)
+
+          print(
+              "::error::KUBE_CONFIG_B64 is not valid base64 and does not look like raw or escaped kubeconfig YAML.",
+              file=sys.stderr,
+          )
+          sys.exit(1)
+          PY
 
           chmod 600 "$RUNNER_TEMP/kubeconfig"
 
