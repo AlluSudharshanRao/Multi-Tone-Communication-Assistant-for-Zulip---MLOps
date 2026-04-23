@@ -46,19 +46,4 @@ The command writes:
 - `reports/data_quality_report.json`
 - `reports/data_quality_report.md`
 
-## Notes for your repo
-
-Your current pipeline stores data in MinIO under prefixes like:
-
-- `raw/<version>/train.parquet`
-- `raw/<version>/val.parquet`
-- `raw/<version>/test.parquet`
-- `raw/<version>/manifest.json`
-- `batch/<batch_version>/train.parquet`
-- `batch/<batch_version>/test.parquet`
-- `batch/<batch_version>/manifest.json`
-- `batch/<batch_date>/feedback_manifest.json`
-- `online_logs/*.json`
-- `feedback/YYYY-MM-DD/*.json`
-
 This monitoring code is built specifically around that layout.
