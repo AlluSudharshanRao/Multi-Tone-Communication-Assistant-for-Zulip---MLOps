@@ -10,6 +10,8 @@
 zulip:
   persistence:
     storageClass: "local-path"
+  nodeSelector:
+    mlops.storage: "block"
   environment:
     # Applied last by docker entrypoint (after ZULIP_CUSTOM_SETTINGS). Use this so a secret file
     # that replaces ZULIP_CUSTOM_SETTINGS cannot leave OPEN_REALM_CREATION off by accident.
@@ -58,6 +60,8 @@ resources:
 
 postgresql:
   primary:
+    nodeSelector:
+      mlops.storage: "block"
     persistence:
       storageClass: "local-path"
       size: "15Gi"

@@ -34,6 +34,7 @@ What happens in order:
 3. The generator produces `formal`, `friendly`, and `neutral` rewrites.
 4. The generator uses classifier-backed tone information and internal fallback logic to improve weak outputs.
 5. The bridge formats the result into a Zulip-compatible response and returns it to the frontend.
+6. The bridge writes a privacy-preserving feature log for the live request into MinIO under `feature_logs/YYYY-MM-DD/` so production drift can be monitored without storing raw message text.
 
 ## 2. How The Model Is Picked
 
@@ -76,6 +77,21 @@ Storage location:
 - MinIO bucket: `zulip-rewriter`
 - object prefix: `feedback/YYYY-MM-DD/`
 
+In parallel with feedback capture, the bridge also writes live feature-only records for every request:
+
+- MinIO bucket: `zulip-rewriter`
+- object prefix: `feature_logs/YYYY-MM-DD/`
+
+Each feature log stores only derived request features such as:
+
+- `word_count`
+- `char_count`
+- `polite_marker_count`
+- `informal_marker_count`
+- `has_question_mark`
+- `has_exclamation`
+- `estimated_formality`
+
 ```mermaid
 flowchart LR
     A["User gets suggestions in Zulip"] --> B["User selects / edits / rates suggestion"]
@@ -97,14 +113,17 @@ Primary files:
 It writes versioned outputs such as:
 
 - `batch/YYYY-MM-DD/feedback_manifest.json`
+- `batch/YYYY-MM-DD/drift_baseline.json`
 - `batch/v1_batch_YYYY-MM-DD/train.parquet`
 - `batch/v1_batch_YYYY-MM-DD/test.parquet`
 - `batch/v1_batch_YYYY-MM-DD/manifest.json`
+- `batch/v1_batch_YYYY-MM-DD/drift_baseline.json`
 
 Important behavior:
 
 - `preferred_text` feedback rows are merged into the training set
 - feedback summary statistics are computed
+- a drift baseline is computed from the selected training corpus and stored in MinIO
 - the batch result becomes the input for retraining
 
 ## 5. Retrain Trigger
@@ -121,11 +140,15 @@ The trigger evaluates:
 
 - new feedback count since last retrain
 - feedback approval rate
-- a production-quality proxy
+- live production drift using `feature_logs/` versus the latest `drift_baseline.json`
 
 If thresholds are met, it writes:
 
 - `triggers/YYYY-MM-DD/trigger_<timestamp>.json`
+
+Each trigger evaluation also writes a drift report to:
+
+- `drift/evaluations/YYYY-MM-DD/drift_<timestamp>.json`
 
 ## 6. Retraining Automation
 
@@ -176,7 +199,8 @@ The registration job:
 ```mermaid
 flowchart TD
     A["Feedback in MinIO"] --> B["Batch Pipeline<br/>data/batch/batch_pipeline.py"]
-    B --> C["Batch dataset + feedback manifest in MinIO"]
+    X["Live feature logs in MinIO"] --> D
+    B --> C["Batch dataset + feedback manifest + drift baseline in MinIO"]
     C --> D["Retrain Trigger CronJob<br/>data/retrain_trigger/retrain_trigger.py"]
     D --> E["Trigger record in MinIO<br/>triggers/YYYY-MM-DD/*.json"]
     E --> F["GitHub Actions<br/>retrain-on-trigger.yml"]

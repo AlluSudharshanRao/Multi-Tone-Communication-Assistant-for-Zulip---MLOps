@@ -35,7 +35,9 @@ ansible_python_interpreter=/usr/bin/python3.12
 ```bash
 source .venv/bin/activate
 ansible-playbook -i inventory.ini playbooks/k3s_install.yml
+ansible-playbook -i inventory.ini playbooks/prepare_block_storage.yml
 ansible-playbook -i inventory.ini playbooks/deploy_platform.yml
+ansible-playbook -i inventory.ini playbooks/migrate_platform_pvcs_to_block.yml
 ansible-playbook -i inventory.ini playbooks/deploy_zulip.yml \
   -e zulip_chart_dir=/home/cc/docker-zulip/helm/zulip \
   -e project_id_suffix=proj15 \
@@ -47,6 +49,14 @@ ansible-playbook -i inventory.ini playbooks/deploy_ml_workloads.yml
 ## Notes
 
 - The playbooks only run cluster-admin actions on `control_plane`.
+- `prepare_block_storage.yml` assumes the Chameleon block volume is already attached,
+  partitioned as `/dev/vdb1`, and mounted or mountable at `/mnt/block`.
+- `prepare_block_storage.yml` is non-destructive. It makes future `local-path` claims
+  use `/mnt/block/local-path-provisioner` on the control-plane, but it does not migrate
+  already-bound PVCs off the root disk.
+- `migrate_platform_pvcs_to_block.yml` performs a stop-copy-recreate-restore migration
+  for MinIO, MLflow, Prometheus, and Grafana PVCs. Run it only after
+  `prepare_block_storage.yml` and a fresh `deploy_platform.yml`.
 - `deploy_platform.yml` and `deploy_ml_workloads.yml` rewrite floating-IP-based hostnames in the synced VM manifests.
 - `deploy_ml_workloads.yml` now waits for:
   - data jobs

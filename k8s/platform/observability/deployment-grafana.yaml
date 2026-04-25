@@ -18,6 +18,8 @@ spec:
       labels:
         app: grafana
     spec:
+      nodeSelector:
+        mlops.storage: block
       securityContext:
         fsGroup: 472
       containers:

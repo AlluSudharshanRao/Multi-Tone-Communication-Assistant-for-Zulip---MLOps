@@ -17,6 +17,8 @@ spec:
       labels:
         app: minio
     spec:
+      nodeSelector:
+        mlops.storage: block
       securityContext:
         fsGroup: 1000
         runAsUser: 1000
