@@ -92,6 +92,11 @@ Each feature log stores only derived request features such as:
 - `has_exclamation`
 - `estimated_formality`
 
+Operational note:
+
+- The bridge exposes Prometheus metrics for feedback and feature-log activity.
+- Grafana's `Data Monitoring and Quality` dashboard uses those bridge metrics together with job and pod-health signals from the cluster.
+
 ```mermaid
 flowchart LR
     A["User gets suggestions in Zulip"] --> B["User selects / edits / rates suggestion"]

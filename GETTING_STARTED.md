@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide is the clean bring-up order for the current repository state.
+This guide describes the recommended bring-up and rerun flow for the current repository state.
 
 ## Prerequisites
 
@@ -17,6 +17,23 @@ This guide is the clean bring-up order for the current repository state.
 - `infra/ansible/inventory.ini`
 
 Do not commit any of those files.
+
+## Recommended commands
+
+For a clean bring-up from the repo root:
+
+```bash
+./infra/run-terraform --action apply --write-inventory
+./infra/run-ansible
+```
+
+For a normal rerun on an existing live cluster:
+
+```bash
+./infra/run-ansible --skip-pvc-migration
+```
+
+Use the playbook-by-playbook flow below when you need to debug or run individual stages.
 
 ## Bring-up order
 
@@ -103,6 +120,9 @@ This migrates:
 
 The migration is serialized and service-by-service: scale down, stream backup, recreate
 the PVC, restore, then scale back up.
+
+This is a one-time disruptive migration step. Do not include it in normal reruns of the
+cluster after the data has already been moved.
 
 ### 5. Deploy the shared platform
 
@@ -234,6 +254,16 @@ Verify:
 - `https://grafana.<floating-ip>.nip.io`
 
 Then log into Zulip and test `Tone suggestions`.
+
+Grafana also includes a `Data Monitoring and Quality` dashboard that shows:
+
+- bridge feedback counters
+- feature-log activity
+- data and training job health
+- data and training pod restarts
+
+Some bridge-related panels require at least one successful Prometheus scrape interval after
+live traffic has hit the bridge metrics endpoint.
 
 ## If something fails
 
