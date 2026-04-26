@@ -14,6 +14,19 @@
     zulip_chart_dir: ""
     zulip_values_file: ""
     zulip_secret_values_file: ""
+    zulip_admin_email: "{{ lookup('env', 'ZULIP_ADMIN_EMAIL') | default('admin@example.com', true) }}"
+    zulip_email_host: "{{ lookup('env', 'ZULIP_EMAIL_HOST') | default('localhost', true) }}"
+    zulip_email_host_user: "{{ lookup('env', 'ZULIP_EMAIL_HOST_USER') | default('', true) }}"
+    zulip_email_port: "{{ lookup('env', 'ZULIP_EMAIL_PORT') | default('25', true) }}"
+    zulip_email_use_tls: "{{ lookup('env', 'ZULIP_EMAIL_USE_TLS') | default('False', true) }}"
+    zulip_email_password: "{{ lookup('env', 'ZULIP_EMAIL_PASSWORD') | default(lookup('password', '/dev/null length=24 chars=ascii_letters,digits'), true) }}"
+    zulip_secret_key: "{{ lookup('env', 'ZULIP_SECRET_KEY') | default(lookup('password', '/dev/null length=48 chars=ascii_letters,digits'), true) }}"
+    zulip_memcached_password: "{{ lookup('env', 'ZULIP_MEMCACHED_PASSWORD') | default(lookup('password', '/dev/null length=24 chars=ascii_letters,digits'), true) }}"
+    zulip_rabbitmq_password: "{{ lookup('env', 'ZULIP_RABBITMQ_PASSWORD') | default(lookup('password', '/dev/null length=24 chars=ascii_letters,digits'), true) }}"
+    zulip_rabbitmq_erlang_cookie: "{{ lookup('env', 'ZULIP_RABBITMQ_ERLANG_COOKIE') | default(lookup('password', '/dev/null length=32 chars=ascii_letters,digits'), true) }}"
+    zulip_redis_password: "{{ lookup('env', 'ZULIP_REDIS_PASSWORD') | default(lookup('password', '/dev/null length=24 chars=ascii_letters,digits'), true) }}"
+    zulip_postgres_superuser_password: "{{ lookup('env', 'ZULIP_POSTGRES_SUPERUSER_PASSWORD') | default(lookup('password', '/dev/null length=24 chars=ascii_letters,digits'), true) }}"
+    zulip_postgres_password: "{{ lookup('env', 'ZULIP_POSTGRES_PASSWORD') | default(lookup('password', '/dev/null length=24 chars=ascii_letters,digits'), true) }}"
   tasks:
     - name: Fail if zulip_chart_dir not provided
       ansible.builtin.fail:
@@ -48,6 +61,32 @@
       ansible.builtin.stat:
         path: "{{ zulip_chart_dir }}"
       register: zulip_chart_stat
+
+    - name: Ensure parent directory for Zulip secret values exists
+      ansible.builtin.file:
+        path: "{{ zulip_secret_values_file | dirname }}"
+        state: directory
+        mode: "0755"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      when: zulip_secret_values_file | length > 0
+
+    - name: Check whether Zulip secret values file already exists
+      ansible.builtin.stat:
+        path: "{{ zulip_secret_values_file }}"
+      register: zulip_secret_values_stat
+      when: zulip_secret_values_file | length > 0
+
+    - name: Generate Zulip secret values file when missing
+      ansible.builtin.template:
+        src: "../templates/zulip-values-secret.yaml.j2"
+        dest: "{{ zulip_secret_values_file }}"
+        mode: "0600"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      when:
+        - zulip_secret_values_file | length > 0
+        - not zulip_secret_values_stat.stat.exists
 
     - name: Clone docker-zulip chart source (if chart path missing)
       when: not zulip_chart_stat.stat.exists

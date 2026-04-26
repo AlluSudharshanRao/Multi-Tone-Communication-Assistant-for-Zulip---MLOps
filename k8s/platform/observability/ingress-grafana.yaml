@@ -13,9 +13,9 @@ spec:
   tls:
     - secretName: chameleon-nip-tls
       hosts:
-        - grafana.129.114.26.185.nip.io
+        - grafana.FLOATING_IP_PLACEHOLDER.nip.io
   rules:
-    - host: grafana.129.114.26.185.nip.io
+    - host: grafana.FLOATING_IP_PLACEHOLDER.nip.io
       http:
         paths:
           - path: /

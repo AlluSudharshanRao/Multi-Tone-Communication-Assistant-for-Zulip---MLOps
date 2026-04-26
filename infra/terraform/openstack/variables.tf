@@ -129,3 +129,45 @@ variable "security_groups" {
   description = "Existing security group names for the instances. A managed mlops cluster group is added automatically."
   type        = list(string)
 }
+
+variable "attach_block_volume" {
+  description = "Attach a persistent block volume to the control-plane node."
+  type        = bool
+  default     = false
+}
+
+variable "existing_block_volume_id" {
+  description = "Existing Cinder volume UUID to reattach for persistent data. Recommended for rebuilds where data must survive VM recreation."
+  type        = string
+  default     = ""
+}
+
+variable "create_block_volume" {
+  description = "Create a new block volume in Terraform instead of reusing an existing one."
+  type        = bool
+  default     = false
+}
+
+variable "block_volume_name" {
+  description = "Name to use when Terraform creates the persistent block volume."
+  type        = string
+  default     = ""
+}
+
+variable "block_volume_size_gib" {
+  description = "Size in GiB for a Terraform-managed block volume."
+  type        = number
+  default     = 150
+}
+
+variable "block_volume_type" {
+  description = "Chameleon/OpenStack block volume type, e.g. ceph-ssd."
+  type        = string
+  default     = "ceph-ssd"
+}
+
+variable "block_volume_availability_zone" {
+  description = "Availability zone for the block volume."
+  type        = string
+  default     = "nova"
+}

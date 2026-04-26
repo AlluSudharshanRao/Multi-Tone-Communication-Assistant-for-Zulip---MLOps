@@ -64,8 +64,8 @@ spec:
               mountPath: /mlflow/data
           resources:
             requests:
-              cpu: "200m"
-              memory: 384Mi
+              cpu: "250m"
+              memory: 512Mi
             limits:
               cpu: "1"
               memory: 2Gi
