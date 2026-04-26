@@ -66,53 +66,14 @@
         replace: "{{ public_floating_ip }}"
       loop: "{{ training_endpoint_files }}"
 
-    - name: Replicate minio-root Secret into ml-data namespace
-      ansible.builtin.shell: |
-        set -euo pipefail
-        kubectl --kubeconfig "{{ kubeconfig_path }}" get secret minio-root -n ml-platform -o json | python3 -c "
-        import json, sys
-        d = json.load(sys.stdin)
-        m = d['metadata']
-        for k in ('uid', 'resourceVersion', 'creationTimestamp', 'managedFields'):
-            m.pop(k, None)
-        m['namespace'] = 'ml-data'
-        d.pop('status', None)
-        print(json.dumps(d))
-        " | kubectl --kubeconfig "{{ kubeconfig_path }}" apply -f -
-      args:
-        executable: /bin/bash
-
-    - name: Replicate minio-root Secret into ml-training namespace
-      ansible.builtin.shell: |
-        set -euo pipefail
-        kubectl --kubeconfig "{{ kubeconfig_path }}" get secret minio-root -n ml-platform -o json | python3 -c "
-        import json, sys
-        d = json.load(sys.stdin)
-        m = d['metadata']
-        for k in ('uid', 'resourceVersion', 'creationTimestamp', 'managedFields'):
-            m.pop(k, None)
-        m['namespace'] = 'ml-training'
-        d.pop('status', None)
-        print(json.dumps(d))
-        " | kubectl --kubeconfig "{{ kubeconfig_path }}" apply -f -
-      args:
-        executable: /bin/bash
-
-    - name: Replicate minio-root Secret into ml-serving namespace
-      ansible.builtin.shell: |
-        set -euo pipefail
-        kubectl --kubeconfig "{{ kubeconfig_path }}" get secret minio-root -n ml-platform -o json | python3 -c "
-        import json, sys
-        d = json.load(sys.stdin)
-        m = d['metadata']
-        for k in ('uid', 'resourceVersion', 'creationTimestamp', 'managedFields'):
-            m.pop(k, None)
-        m['namespace'] = 'ml-serving'
-        d.pop('status', None)
-        print(json.dumps(d))
-        " | kubectl --kubeconfig "{{ kubeconfig_path }}" apply -f -
-      args:
-        executable: /bin/bash
+    - name: Verify minio-root Secret exists in workload namespaces
+      ansible.builtin.command: >
+        kubectl --kubeconfig {{ kubeconfig_path }}
+        get secret minio-root -n {{ item }}
+      loop:
+        - ml-data
+        - ml-training
+        - ml-serving
 
     - name: Create/update GHCR image pull secret in workload namespaces
       ansible.builtin.shell: |

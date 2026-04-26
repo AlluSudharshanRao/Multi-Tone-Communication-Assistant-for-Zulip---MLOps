@@ -104,7 +104,9 @@ jobs:
           KUBECONFIG: ${{ runner.temp }}/kubeconfig
         run: |
           set -euo pipefail
-          kubectl apply -k k8s/platform/observability/
+          # Skip client-side OpenAPI validation in CI because runners can time out
+          # fetching /openapi/v2 even when the API server is otherwise reachable.
+          kubectl apply --validate=false -k k8s/platform/observability/
           echo "Manifests applied."
 
       - name: Restart Grafana to pick up ConfigMap changes

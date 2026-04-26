@@ -31,6 +31,11 @@ output "floating_ip" {
   description = "SSH here to reach the control-plane node; the worker is reached through the control-plane jump host."
 }
 
+output "control_plane_block_volume_id" {
+  value       = var.attach_block_volume ? local.block_volume_id : null
+  description = "Persistent block volume attached to the control-plane. Reuse this ID in future rebuilds to keep live PVC data."
+}
+
 output "managed_security_group" {
   value       = openstack_networking_secgroup_v2.mlops_cluster.name
   description = "Managed security group added to both nodes (includes SSH, HTTP, HTTPS, and k3s internal traffic)."
@@ -38,7 +43,7 @@ output "managed_security_group" {
 
 output "ansible_inventory_ini" {
   description = "Convenience output for Ansible inventory (INI format)."
-  value = <<-EOT
+  value       = <<-EOT
   [control_plane]
   control-plane ansible_host=${openstack_networking_floatingip_v2.control_plane_fip.address} private_ip=${openstack_compute_instance_v2.control_plane.network[0].fixed_ip_v4}
 

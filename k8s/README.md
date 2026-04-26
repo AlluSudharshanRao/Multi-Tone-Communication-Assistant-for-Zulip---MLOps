@@ -7,9 +7,11 @@ This directory contains the cluster workloads applied by Ansible and, when neede
 | Path | Namespace | Purpose |
 |------|-----------|---------|
 | `base/` | cluster-wide | namespace definitions |
+| `secrets/` | mixed | centralized SealedSecret manifests for shared runtime secrets |
 | `platform/mlflow/` | `ml-platform` | MLflow |
 | `platform/minio/` | `ml-platform` | MinIO API and console |
 | `platform/observability/` | `monitoring` | Prometheus, Grafana, Alertmanager |
+| `platform/backups/` | mixed | CronJobs that back up PVC-backed state to Chameleon object storage |
 | `zulip/` | `zulip` | Zulip Helm values and secret template |
 | `data/` | `ml-data` | ingest, batch, online, and generator data workloads |
 | `training/` | `ml-training` | classifier training, generator training, register bundle |

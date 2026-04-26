@@ -1,7 +1,6 @@
 ---
 # Copies k8s/ to the VM; applies namespaces, MLflow, MinIO, and Prometheus/Grafana (monitoring).
-# Creates Secret minio-root in ml-platform using minio_root_password (see vars below).
-# Creates Secret grafana-admin in monitoring with a password that can be overridden from the environment.
+# Runtime secrets are expected to come from Sealed Secrets via deploy_sealed_secrets.yml.
 - name: Deploy namespaces + platform services (MLflow, MinIO, observability)
   hosts: control_plane
   become: true
@@ -19,9 +18,6 @@
       - "k8s/platform/observability/ingress-grafana.yaml"
       - "k8s/platform/observability/ingress-prometheus.yaml"
       - "k8s/zulip/values-chameleon.yaml"
-    minio_root_user: "minioadmin"
-    minio_root_password: "{{ lookup('env', 'MINIO_ROOT_PASSWORD') | default('minio-password', true) }}"
-    grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') | default('grafana-password', true) }}"
     alert_email_to: "{{ lookup('env', 'ALERT_EMAIL_TO') | default('', true) }}"
     alert_email_from: "{{ lookup('env', 'ALERT_EMAIL_FROM') | default('', true) }}"
     alert_email_smarthost: "{{ lookup('env', 'ALERT_EMAIL_SMARTHOST') | default('', true) }}"
@@ -89,33 +85,20 @@
         kubectl --kubeconfig {{ kubeconfig_path }}
         apply -k {{ repo_root }}/k8s/platform/mlflow/
 
-    - name: Ensure MinIO root secret exists (ml-platform namespace)
-      ansible.builtin.shell: |
-        set -e
-        kubectl --kubeconfig {{ kubeconfig_path }} create secret generic minio-root -n ml-platform \
-          --from-literal=root-user={{ minio_root_user }} \
-          --from-literal=root-password={{ minio_root_password }} \
-          --dry-run=client -o yaml | \
-        kubectl --kubeconfig {{ kubeconfig_path }} apply -f -
-      args:
-        executable: /bin/bash
-      no_log: true
+    - name: Verify MinIO root secret exists (ml-platform namespace)
+      ansible.builtin.command: >
+        kubectl --kubeconfig {{ kubeconfig_path }}
+        get secret minio-root -n ml-platform
 
     - name: Apply MinIO kustomize
       ansible.builtin.command: >
         kubectl --kubeconfig {{ kubeconfig_path }}
         apply -k {{ repo_root }}/k8s/platform/minio/
 
-    - name: Ensure Grafana admin secret exists (monitoring namespace)
-      ansible.builtin.shell: |
-        set -e
-        kubectl --kubeconfig {{ kubeconfig_path }} create secret generic grafana-admin -n monitoring \
-          --from-literal=admin-password={{ grafana_admin_password }} \
-          --dry-run=client -o yaml | \
-        kubectl --kubeconfig {{ kubeconfig_path }} apply -f -
-      args:
-        executable: /bin/bash
-      no_log: true
+    - name: Verify Grafana admin secret exists (monitoring namespace)
+      ansible.builtin.command: >
+        kubectl --kubeconfig {{ kubeconfig_path }}
+        get secret grafana-admin -n monitoring
 
     - name: Inject Alertmanager SMTP settings into observability config on VM
       ansible.builtin.replace:
