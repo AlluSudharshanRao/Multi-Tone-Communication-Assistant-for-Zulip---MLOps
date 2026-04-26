@@ -96,6 +96,13 @@
         dest: "{{ zulip_chart_dir | dirname | dirname }}"
         depth: 1
 
+    - name: Replace floating IP placeholder in Zulip values file
+      ansible.builtin.replace:
+        path: "{{ zulip_values_file }}"
+        regexp: "FLOATING_IP_PLACEHOLDER"
+        replace: "{{ public_floating_ip }}"
+      when: zulip_values_file | length > 0
+
     - name: Update SETTING_EXTERNAL_HOST in Zulip secret values
       ansible.builtin.shell: |
         python3 - <<'PY'

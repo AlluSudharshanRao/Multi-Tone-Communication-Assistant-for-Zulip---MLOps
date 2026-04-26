@@ -8,7 +8,18 @@
   gather_facts: false
   vars:
     k3s_install_url: "https://get.k3s.io"
-    k3s_server_exec: "server --write-kubeconfig-mode 644"
+    control_plane_public_ip: "{{ ansible_host | default('') }}"
+    control_plane_private_ip: "{{ private_ip | default(ansible_host) }}"
+    k3s_tls_sans: >-
+      {{
+        [
+          control_plane_public_ip,
+          control_plane_private_ip
+        ]
+        | reject('equalto', '')
+        | unique
+        | list
+      }}
   tasks:
     - name: Wait for control-plane SSH
       ansible.builtin.wait_for_connection:
@@ -20,11 +31,62 @@
         name: curl
         state: present
 
+    - name: Ensure k3s config directory exists
+      ansible.builtin.file:
+        path: /etc/rancher/k3s
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Check whether k3s is already installed
+      ansible.builtin.stat:
+        path: /usr/local/bin/k3s
+      register: k3s_binary
+
+    - name: Write k3s server config with dynamic TLS SANs
+      ansible.builtin.copy:
+        dest: /etc/rancher/k3s/config.yaml
+        owner: root
+        group: root
+        mode: "0600"
+        content: |
+          write-kubeconfig-mode: "0644"
+          tls-san:
+          {% for san in k3s_tls_sans %}
+            - {{ san }}
+          {% endfor %}
+      register: k3s_server_config
+
     - name: Install k3s server
       ansible.builtin.shell: |
-        curl -sfL {{ k3s_install_url }} | INSTALL_K3S_EXEC="{{ k3s_server_exec }}" sh -
+        curl -sfL {{ k3s_install_url }} | INSTALL_K3S_EXEC="server" sh -
       args:
         creates: /usr/local/bin/k3s
+
+    - name: Rotate k3s API server certificate when TLS SANs change
+      when:
+        - k3s_binary.stat.exists
+        - k3s_server_config.changed
+      block:
+        - name: Stop k3s before rotating certificates
+          ansible.builtin.service:
+            name: k3s
+            state: stopped
+
+        - name: Rotate k3s API server certificate
+          ansible.builtin.command: k3s certificate rotate --service api-server
+
+        - name: Start k3s after rotating certificates
+          ansible.builtin.service:
+            name: k3s
+            state: started
+
+    - name: Ensure k3s service is enabled and started
+      ansible.builtin.service:
+        name: k3s
+        enabled: true
+        state: started
 
     - name: Read cluster join token
       ansible.builtin.command: cat /var/lib/rancher/k3s/server/node-token
