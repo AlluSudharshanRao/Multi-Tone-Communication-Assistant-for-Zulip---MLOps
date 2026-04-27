@@ -65,8 +65,13 @@ Current platform alerts:
 
 Current serving alerts:
 
-- `ServingHighP95Latency`
-- `ServingHigh5xxRate`
+- `ServingClassifierHighErrorRatio`
+- `ServingClassifierLatencyP95High`
+- `ServingGeneratorHighErrorRatio`
+- `ServingGeneratorLatencyP95High`
+- `ServingGeneratorFallbackRatioHigh`
+- `ServingGeneratorFeedbackApprovalLow`
+- `ServingGeneratorQueueWaitP95High`
 
 Alertmanager supports SMTP email delivery through deployment-time variable injection. Set these before running `deploy_platform.yml`:
 
