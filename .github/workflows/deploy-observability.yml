@@ -147,6 +147,32 @@ jobs:
             exit 1
           fi
 
+      - name: Render floating IP placeholders
+        env:
+          CONTROL_PLANE_HOST: ${{ vars.CONTROL_PLANE_HOST }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CONTROL_PLANE_HOST:-}" ]; then
+            echo "::error::Missing Actions variable CONTROL_PLANE_HOST."
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          host = os.environ["CONTROL_PLANE_HOST"]
+          files = [
+              Path("k8s/platform/observability/deployment-grafana.yaml"),
+              Path("k8s/platform/observability/ingress-grafana.yaml"),
+              Path("k8s/platform/observability/ingress-prometheus.yaml"),
+          ]
+
+          for path in files:
+              text = path.read_text(encoding="utf-8")
+              path.write_text(text.replace("FLOATING_IP_PLACEHOLDER", host), encoding="utf-8")
+          PY
+
       - name: Apply observability manifests
         env:
           KUBECONFIG: ${{ runner.temp }}/kubeconfig
