@@ -52,6 +52,8 @@ spec:
                   key: root-password
             - name: DATA_VERSION
               value: "v1"
+            - name: GYAFC_SOURCE_URL
+              value: "https://drive.usercontent.google.com/download?id=1j7JZSfnXlBMrZuuvc4KV1uoVOtS71pTo&export=download&confirm=t"
           resources:
             requests:
               cpu: 200m

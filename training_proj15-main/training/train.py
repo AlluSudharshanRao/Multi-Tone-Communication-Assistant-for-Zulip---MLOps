@@ -39,6 +39,7 @@ from typing import Any
 import mlflow
 import numpy as np
 import optuna
+import pandas as pd
 import yaml
 from sklearn.datasets import fetch_20newsgroups
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -125,7 +126,7 @@ def _build_pipeline(cfg: dict[str, Any]) -> Pipeline:
     )
 
 
-def _load_twenty_newsgroups(cfg: dict[str, Any]) -> tuple[list[str], np.ndarray, list[str]]:
+def _load_twenty_newsgroups(cfg: dict[str, Any]) -> tuple[list[str], np.ndarray, list[str], list[str] | None]:
     d = cfg["data"]
     cats = d.get("categories")
     remove = ("headers", "footers", "quotes")
@@ -138,10 +139,10 @@ def _load_twenty_newsgroups(cfg: dict[str, Any]) -> tuple[list[str], np.ndarray,
     )
     texts = bunch.data
     y = np.asarray(bunch.target, dtype=np.int64)
-    return texts, y, list(bunch.target_names)
+    return texts, y, list(bunch.target_names), None
 
 
-def _load_tone_csv(cfg: dict[str, Any]) -> tuple[list[str], np.ndarray, list[str]]:
+def _load_tone_csv(cfg: dict[str, Any]) -> tuple[list[str], np.ndarray, list[str], list[str] | None]:
     d = cfg["data"]
     label_classes = list(d["label_classes"])
     label_to_idx = {name: i for i, name in enumerate(label_classes)}
@@ -149,10 +150,13 @@ def _load_tone_csv(cfg: dict[str, Any]) -> tuple[list[str], np.ndarray, list[str
     path = raw_path if raw_path.is_absolute() else Path(__file__).resolve().parent / raw_path
     texts: list[str] = []
     ys: list[int] = []
+    splits: list[str] | None = []
     with path.open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         if reader.fieldnames is None or "text" not in reader.fieldnames or "tone" not in reader.fieldnames:
             raise ValueError("tone_csv requires CSV headers including 'text' and 'tone'")
+        if "split" not in reader.fieldnames:
+            splits = None
         for row in reader:
             t = (row.get("text") or "").strip()
             tone = (row.get("tone") or "").strip()
@@ -162,18 +166,52 @@ def _load_tone_csv(cfg: dict[str, Any]) -> tuple[list[str], np.ndarray, list[str
                 raise ValueError(f"Unknown tone {tone!r}; expected one of {label_classes}")
             texts.append(t)
             ys.append(label_to_idx[tone])
+            if splits is not None:
+                splits.append((row.get("split") or "train").strip().lower())
     if len(texts) < 6:
         raise ValueError("tone_csv needs more rows for a stable train/val/test split")
-    return texts, np.asarray(ys, dtype=np.int64), label_classes
+    return texts, np.asarray(ys, dtype=np.int64), label_classes, splits
 
 
-def _load_dataset(cfg: dict[str, Any]) -> tuple[list[str], np.ndarray, list[str]]:
+def _load_dataset(cfg: dict[str, Any]) -> tuple[list[str], np.ndarray, list[str], list[str] | None]:
     kind = cfg["data"].get("dataset", "tone_csv")
     if kind == "twenty_newsgroups":
         return _load_twenty_newsgroups(cfg)
     if kind == "tone_csv":
         return _load_tone_csv(cfg)
     raise ValueError(f"Unknown data.dataset: {kind}")
+
+
+def _split_with_predefined_splits(
+    texts: list[str],
+    y: np.ndarray,
+    splits: list[str],
+    seed: int,
+) -> tuple[list[str], list[str], list[str], np.ndarray, np.ndarray, np.ndarray]:
+    frame = pd.DataFrame({"text": texts, "label": y, "split": splits})
+    frame["split"] = frame["split"].astype(str).str.lower()
+    required = {"train", "val", "test"}
+    if not required.issubset(set(frame["split"])):
+        raise ValueError("Pre-split tone CSV must include train, val, and test rows.")
+
+    train_df = frame[frame["split"] == "train"].copy()
+    val_df = frame[frame["split"] == "val"].copy()
+    test_df = frame[frame["split"] == "test"].copy()
+
+    if train_df.empty or val_df.empty or test_df.empty:
+        raise ValueError("Pre-split tone CSV must have non-empty train, val, and test splits.")
+
+    train_df = train_df.sample(frac=1.0, random_state=seed).reset_index(drop=True)
+    val_df = val_df.sample(frac=1.0, random_state=seed).reset_index(drop=True)
+    test_df = test_df.sample(frac=1.0, random_state=seed).reset_index(drop=True)
+    return (
+        train_df["text"].tolist(),
+        val_df["text"].tolist(),
+        test_df["text"].tolist(),
+        train_df["label"].to_numpy(dtype=np.int64),
+        val_df["label"].to_numpy(dtype=np.int64),
+        test_df["label"].to_numpy(dtype=np.int64),
+    )
 
 
 def _lineage_record(cfg: dict[str, Any], class_names: list[str]) -> dict[str, Any]:
@@ -528,21 +566,29 @@ def train(cfg: dict[str, Any], config_path: Path | None = None) -> None:
     d = cfg["data"]
     seed = int(d["random_seed"])
 
-    texts, y, class_names = _load_dataset(cfg)
-    X_train, X_test, y_train, y_test = train_test_split(
-        texts,
-        y,
-        test_size=float(d["test_size"]),
-        random_state=seed,
-        stratify=y,
-    )
-    X_train, X_val, y_train, y_val = train_test_split(
-        X_train,
-        y_train,
-        test_size=0.15,
-        random_state=seed,
-        stratify=y_train,
-    )
+    texts, y, class_names, splits = _load_dataset(cfg)
+    if splits is not None:
+        X_train, X_val, X_test, y_train, y_val, y_test = _split_with_predefined_splits(
+            texts,
+            y,
+            splits,
+            seed,
+        )
+    else:
+        X_train, X_test, y_train, y_test = train_test_split(
+            texts,
+            y,
+            test_size=float(d["test_size"]),
+            random_state=seed,
+            stratify=y,
+        )
+        X_train, X_val, y_train, y_val = train_test_split(
+            X_train,
+            y_train,
+            test_size=0.15,
+            random_state=seed,
+            stratify=y_train,
+        )
 
     mlflow.set_experiment(cfg.get("experiment_name", "default"))
     env_info = _training_environment()
