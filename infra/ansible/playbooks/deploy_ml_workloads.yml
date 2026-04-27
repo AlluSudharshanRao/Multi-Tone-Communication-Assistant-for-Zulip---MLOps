@@ -8,9 +8,7 @@
     kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
     repo_root: "/opt/mlops_project"
     public_floating_ip: "{{ hostvars[groups['control_plane'][0]].ansible_host }}"
-    nip_hostname_files:
-      - "k8s/inference/ingress/tiered-ingress.yaml"
-      - "k8s/integration/ingress-zulip-bridge.yaml"
+    public_nip_base: "{{ lookup('env', 'PUBLIC_NIP_BASE') | default(public_floating_ip ~ '.nip.io', true) }}"
     training_endpoint_files:
       - "k8s/training/classifier-training-job.yaml"
       - "k8s/training/generator-training-job.yaml"
@@ -52,12 +50,11 @@
       args:
         executable: /bin/bash
 
-    - name: Update placeholder nip.io hosts to the current floating IP
-      ansible.builtin.replace:
-        path: "{{ repo_root }}/{{ item }}"
-        regexp: "FLOATING_IP_PLACEHOLDER|(?<=\\.)\\d{1,3}(?:\\.\\d{1,3}){3}(?=\\.nip\\.io)"
-        replace: "{{ public_floating_ip }}"
-      loop: "{{ nip_hostname_files }}"
+    - name: Render shared public nip.io hostnames in synced manifests
+      ansible.builtin.command: >
+        python3 {{ repo_root }}/k8s/scripts/render_public_endpoints.py
+        --root {{ repo_root }}
+        --base {{ public_nip_base }}
 
     - name: Update training endpoint IPs to the current floating IP
       ansible.builtin.replace:

@@ -6,8 +6,10 @@
   gather_facts: false
   vars:
     kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
+    repo_root: "/opt/mlops_project"
     public_floating_ip: "{{ hostvars[groups['control_plane'][0]].ansible_host }}"
-    zulip_external_host: "zulip.{{ public_floating_ip }}.nip.io"
+    public_nip_base: "{{ lookup('env', 'PUBLIC_NIP_BASE') | default(public_floating_ip ~ '.nip.io', true) }}"
+    zulip_external_host: "zulip.{{ public_nip_base }}"
     project_id_suffix: "proj15"
     release_name: "zulip-{{ project_id_suffix }}"
     zulip_k8s_namespace: "zulip"
@@ -38,6 +40,22 @@
       register: helm_check
       failed_when: false
       changed_when: false
+
+    - name: Ensure shared manifest renderer directory exists
+      ansible.builtin.file:
+        path: "{{ repo_root }}/k8s/scripts"
+        state: directory
+        mode: "0755"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Copy shared manifest renderer to the VM
+      ansible.builtin.copy:
+        src: "../../../k8s/scripts/render_public_endpoints.py"
+        dest: "{{ repo_root }}/k8s/scripts/render_public_endpoints.py"
+        mode: "0755"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
 
     - name: Install Helm 3 (upstream install script)
       when: helm_check.rc != 0
@@ -96,11 +114,11 @@
         dest: "{{ zulip_chart_dir | dirname | dirname }}"
         depth: 1
 
-    - name: Replace floating IP placeholder in Zulip values file
-      ansible.builtin.replace:
-        path: "{{ zulip_values_file }}"
-        regexp: "FLOATING_IP_PLACEHOLDER"
-        replace: "{{ public_floating_ip }}"
+    - name: Render shared public nip.io hostnames in Zulip values file
+      ansible.builtin.command: >
+        python3 {{ repo_root }}/k8s/scripts/render_public_endpoints.py
+        --root {{ repo_root }}
+        --base {{ public_nip_base }}
       when: zulip_values_file | length > 0
 
     - name: Update SETTING_EXTERNAL_HOST in Zulip secret values

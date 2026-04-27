@@ -147,6 +147,20 @@ jobs:
             exit 1
           fi
 
+      - name: Render public nip.io hostnames
+        env:
+          CONTROL_PLANE_HOST: ${{ vars.CONTROL_PLANE_HOST }}
+          PUBLIC_NIP_BASE: ${{ vars.PUBLIC_NIP_BASE }}
+        run: |
+          set -euo pipefail
+          PUBLIC_BASE="${PUBLIC_NIP_BASE:-${CONTROL_PLANE_HOST}.nip.io}"
+          if [ -z "${PUBLIC_BASE:-}" ] || [ "$PUBLIC_BASE" = ".nip.io" ]; then
+            echo "::error::Unable to determine PUBLIC_NIP_BASE. Set Actions variable PUBLIC_NIP_BASE or CONTROL_PLANE_HOST."
+            exit 1
+          fi
+
+          python3 k8s/scripts/render_public_endpoints.py --base "$PUBLIC_BASE"
+
       - name: Apply observability manifests
         env:
           KUBECONFIG: ${{ runner.temp }}/kubeconfig
