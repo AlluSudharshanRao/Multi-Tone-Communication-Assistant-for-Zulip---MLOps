@@ -10,18 +10,18 @@ metadata:
 data:
   requirements.txt: |
     boto3==1.34.69
-    requests==2.32.3
+    botocore==1.34.69
   retrain_trigger.py: |
     from __future__ import annotations
 
     import json
     import logging
     import os
+    import re
     import sys
     from datetime import datetime, timedelta, timezone
 
     import boto3
-    import requests
     from botocore.client import Config
     from botocore.exceptions import ClientError
 
@@ -32,15 +32,24 @@ data:
     MINIO_BUCKET = os.environ.get("MINIO_BUCKET", "zulip-rewriter")
     MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "")
     MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "")
-    MLFLOW_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://mlflow.ml-platform.svc.cluster.local:5000")
 
     DATA_TRIGGER_COUNT = int(os.environ.get("DATA_TRIGGER_COUNT", "500"))
     QUALITY_THRESHOLD = float(os.environ.get("QUALITY_THRESHOLD", "0.70"))
-    DRIFT_THRESHOLD = float(os.environ.get("DRIFT_THRESHOLD", "0.60"))
+    DRIFT_THRESHOLD = float(os.environ.get("DRIFT_THRESHOLD", "1.50"))
+    DRIFT_MIN_SAMPLES = int(os.environ.get("DRIFT_MIN_SAMPLES", "25"))
     LOOKBACK_DAYS = int(os.environ.get("LOOKBACK_DAYS", "7"))
     DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 
     _WATERMARK_KEY = "triggers/last_retrain_watermark.json"
+    _DRIFT_FEATURES = [
+        "word_count",
+        "char_count",
+        "polite_marker_count",
+        "informal_marker_count",
+        "has_question_mark",
+        "has_exclamation",
+        "estimated_formality",
+    ]
 
 
     def _s3():
@@ -117,62 +126,124 @@ data:
         return total, approval_rate
 
 
-    def _get_production_model_f1(mlflow_uri: str) -> float | None:
-        try:
-            resp = requests.get(
-                f"{mlflow_uri}/api/2.0/mlflow/experiments/search",
-                params={"filter": "name = 'teamchat_tone_clf'", "max_results": 1},
-                timeout=10,
-            )
-            if resp.status_code != 200:
-                return None
-            exps = resp.json().get("experiments", [])
-            if not exps:
-                return None
-            exp_id = exps[0]["experiment_id"]
+    def _key_date(key: str) -> str:
+        match = re.search(r"(\d{4}-\d{2}-\d{2})", key)
+        return match.group(1) if match else ""
 
-            runs_resp = requests.post(
-                f"{mlflow_uri}/api/2.0/mlflow/runs/search",
-                json={
-                    "experiment_ids": [exp_id],
-                    "filter": "tags.mlflow.runName = 'production' OR tags.alias = 'prod'",
-                    "max_results": 1,
-                    "order_by": ["start_time DESC"],
-                },
-                timeout=10,
-            )
-            if runs_resp.status_code != 200:
-                return None
-            runs = runs_resp.json().get("runs", [])
-            if not runs:
-                runs_resp2 = requests.post(
-                    f"{mlflow_uri}/api/2.0/mlflow/runs/search",
-                    json={
-                        "experiment_ids": [exp_id],
-                        "filter": "status = 'FINISHED'",
-                        "max_results": 1,
-                        "order_by": ["start_time DESC"],
-                    },
-                    timeout=10,
-                )
-                runs = runs_resp2.json().get("runs", []) if runs_resp2.status_code == 200 else []
-            if not runs:
-                return None
 
-            metrics = {m["key"]: m["value"] for m in runs[0].get("data", {}).get("metrics", [])}
-            return float(metrics.get("eval_f1") or metrics.get("f1") or metrics.get("test_f1") or 0)
-        except Exception as exc:
-            log.warning("MLflow query failed (non-fatal): %s", exc)
-            return None
+    def _load_latest_drift_baseline(s3_client) -> tuple[str | None, dict | None]:
+        candidates = []
+        for obj_meta in _list_prefix(s3_client, "batch/"):
+            key = obj_meta["Key"]
+            if not key.endswith("drift_baseline.json"):
+                continue
+            candidates.append((_key_date(key), key))
+        if not candidates:
+            return None, None
+        _, latest_key = max(candidates, key=lambda item: (item[0], item[1]))
+        return latest_key, _read_json(s3_client, latest_key)
+
+
+    def _load_recent_feature_logs(s3_client, since: datetime) -> list[dict]:
+        rows: list[dict] = []
+        for obj_meta in _list_prefix(s3_client, "feature_logs/"):
+            key = obj_meta["Key"]
+            if not key.endswith(".json"):
+                continue
+            try:
+                record = _read_json(s3_client, key)
+                created_at = record.get("created_at")
+                if created_at:
+                    created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                    if created_dt < since:
+                        continue
+                rows.append(record)
+            except Exception as exc:
+                log.warning("Could not read feature log %s: %s", key, exc)
+        return rows
+
+
+    def _evaluate_drift(baseline: dict | None, feature_logs: list[dict]) -> dict:
+        if not baseline:
+            return {
+                "triggered": False,
+                "reason": "missing_baseline",
+                "sample_count": len(feature_logs),
+                "overall_score": None,
+                "feature_scores": {},
+                "features_over_threshold": [],
+            }
+
+        if len(feature_logs) < DRIFT_MIN_SAMPLES:
+            return {
+                "triggered": False,
+                "reason": "insufficient_live_samples",
+                "sample_count": len(feature_logs),
+                "overall_score": None,
+                "feature_scores": {},
+                "features_over_threshold": [],
+            }
+
+        live_values = {feature: [] for feature in _DRIFT_FEATURES}
+        for entry in feature_logs:
+            features = entry.get("features") or {}
+            for feature in _DRIFT_FEATURES:
+                value = features.get(feature)
+                if value is not None:
+                    live_values[feature].append(float(value))
+
+        feature_scores = {}
+        live_summary = {}
+        for feature in _DRIFT_FEATURES:
+            baseline_stats = (baseline.get("features") or {}).get(feature)
+            if not baseline_stats or not live_values[feature]:
+                continue
+            baseline_mean = float(baseline_stats.get("mean", 0.0) or 0.0)
+            baseline_std = abs(float(baseline_stats.get("std", 0.0) or 0.0))
+            live_mean = sum(live_values[feature]) / len(live_values[feature])
+            scale_floor = max(abs(baseline_mean) * 0.1, 0.1)
+            denominator = max(baseline_std, scale_floor)
+            score = abs(live_mean - baseline_mean) / denominator
+            feature_scores[feature] = round(score, 4)
+            live_summary[feature] = {
+                "live_mean": round(live_mean, 6),
+                "baseline_mean": round(baseline_mean, 6),
+                "baseline_std": round(baseline_std, 6),
+                "sample_count": len(live_values[feature]),
+            }
+
+        if not feature_scores:
+            return {
+                "triggered": False,
+                "reason": "no_feature_overlap",
+                "sample_count": len(feature_logs),
+                "overall_score": None,
+                "feature_scores": {},
+                "features_over_threshold": [],
+                "live_summary": live_summary,
+            }
+
+        overall_score = max(feature_scores.values())
+        features_over_threshold = [name for name, score in feature_scores.items() if score >= DRIFT_THRESHOLD]
+        return {
+            "triggered": overall_score >= DRIFT_THRESHOLD,
+            "reason": "score_threshold" if overall_score >= DRIFT_THRESHOLD else "within_threshold",
+            "sample_count": len(feature_logs),
+            "overall_score": round(overall_score, 4),
+            "feature_scores": feature_scores,
+            "features_over_threshold": sorted(features_over_threshold),
+            "live_summary": live_summary,
+        }
 
 
     def main() -> None:
         log.info("=== Retrain trigger evaluation ===")
         log.info(
-            "Thresholds: data=%d quality=%.2f drift=%.2f lookback=%dd dry_run=%s",
+            "Thresholds: data=%d quality=%.2f drift=%.2f min_samples=%d lookback=%dd dry_run=%s",
             DATA_TRIGGER_COUNT,
             QUALITY_THRESHOLD,
             DRIFT_THRESHOLD,
+            DRIFT_MIN_SAMPLES,
             LOOKBACK_DAYS,
             DRY_RUN,
         )
@@ -205,16 +276,31 @@ data:
             "FIRE" if quality_triggered else "ok",
         )
 
-        prod_f1 = _get_production_model_f1(MLFLOW_URI)
-        drift_triggered = False
-        if prod_f1 is not None:
-            drift_triggered = prod_f1 < DRIFT_THRESHOLD
+        baseline_key, drift_baseline = _load_latest_drift_baseline(s3)
+        recent_feature_logs = _load_recent_feature_logs(s3, since)
+        drift_eval = _evaluate_drift(drift_baseline, recent_feature_logs)
+        drift_triggered = drift_eval["triggered"]
         log.info(
-            "DRIFT_TRIGGER: prod_f1=%s threshold=%.2f -> %s",
-            prod_f1,
+            "DRIFT_TRIGGER: score=%s samples=%d threshold=%.2f -> %s",
+            drift_eval.get("overall_score"),
+            drift_eval.get("sample_count", 0),
             DRIFT_THRESHOLD,
             "FIRE" if drift_triggered else "ok",
         )
+        if drift_eval.get("feature_scores"):
+            log.info("Drift feature scores: %s", drift_eval["feature_scores"])
+
+        drift_eval_record = {
+            "evaluated_at": now.isoformat(),
+            "lookback_days": LOOKBACK_DAYS,
+            "baseline_key": baseline_key,
+            "threshold": DRIFT_THRESHOLD,
+            **drift_eval,
+        }
+        drift_eval_key = f"drift/evaluations/{now.strftime('%Y-%m-%d')}/drift_{int(now.timestamp())}.json"
+        if not DRY_RUN:
+            _write_json(s3, drift_eval_key, drift_eval_record)
+            log.info("Drift evaluation written: %s", drift_eval_key)
 
         fires = {
             "data": data_triggered,
@@ -234,13 +320,18 @@ data:
             "metrics": {
                 "new_feedback_count": new_feedback,
                 "approval_rate": approval_rate,
-                "production_f1": prod_f1,
+                "drift_score": drift_eval.get("overall_score"),
+                "drift_sample_count": drift_eval.get("sample_count"),
+                "drift_features": drift_eval.get("features_over_threshold"),
+                "drift_baseline_key": baseline_key,
             },
             "thresholds": {
                 "data_trigger_count": DATA_TRIGGER_COUNT,
                 "quality_threshold": QUALITY_THRESHOLD,
                 "drift_threshold": DRIFT_THRESHOLD,
+                "drift_min_samples": DRIFT_MIN_SAMPLES,
             },
+            "drift_evaluation_key": drift_eval_key,
             "processed": False,
         }
 

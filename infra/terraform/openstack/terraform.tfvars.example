@@ -38,3 +38,15 @@ blazar_reservation_id = ""
 
 create_public_router    = true
 install_k3s_cloud_init  = false
+
+# Persistent control-plane block storage:
+# Recommended pattern for rebuilds is to create the volume once, then keep reusing its UUID.
+# Set attach_block_volume=true and provide existing_block_volume_id to have Terraform reattach it.
+# If you want Terraform to create the first volume for you, set create_block_volume=true as well.
+attach_block_volume     = false
+existing_block_volume_id = ""
+create_block_volume     = false
+block_volume_name       = "block-data-proj15"
+block_volume_size_gib   = 150
+block_volume_type       = "ceph-ssd"
+block_volume_availability_zone = "nova"

@@ -72,5 +72,6 @@ flowchart TB
 ## Design notes
 
 - The control-plane is the public entry point and the SSH jump host for the worker.
-- Stateful services still use `local-path`, so persistence remains node-local.
+- Stateful services use k3s `local-path` backed by a Chameleon block volume mounted at `/mnt/block/local-path-provisioner` on the control-plane.
+- The current design improves persistence and recoverability across VM rebuilds by reattaching the same block volume, but it is not automatic multi-node HA storage.
 - The generator serving path mounts a repo-controlled `model.py` through a ConfigMap so the cluster behavior can track the repo logic without waiting for a rebuilt image.
