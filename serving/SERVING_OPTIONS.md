@@ -18,11 +18,23 @@ The current integrated Zulip path uses the PyTorch classifier deployments in `st
 
 The current cluster uses the tiered generator deployments under `k8s/inference/`.
 
+For production-style serving, the preferred path is the causal or LoRA-backed mode with
+an MLflow registry alias such as `models:/tone-generator-lora@canary` or
+`models:/tone-generator-lora@prod`.
+
 ## Practical recommendation
 
 - use `staging` for low-risk validation
-- use `canary` for pre-production checks
-- use `prod` for the Zulip bridge target
+- use `canary` to validate the latest registered generator artifact and its serving latency
+- use `prod` for the Zulip bridge target with the promoted `@prod` generator alias
+
+## Serving notes
+
+- The classifier path already resolves MLflow aliases directly.
+- The generator path should do the same instead of relying on a manually mounted adapter path.
+- The generator now benefits from stronger post-processing guards, but that still complements
+  model quality rather than replacing better training data.
+- Generator latency is lowest when the three tone rewrites are generated in one batched pass.
 
 ## Important tradeoff
 

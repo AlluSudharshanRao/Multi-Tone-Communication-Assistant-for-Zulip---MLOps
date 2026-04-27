@@ -23,11 +23,13 @@ Real mode (DUMMY_MODE=false) — two backends (match training_proj15):
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import random
 import re
 import time
+from pathlib import Path
 from typing import Iterable
 
 logger = logging.getLogger(__name__)
@@ -36,6 +38,10 @@ TONES = ["formal", "friendly", "neutral"]
 DUMMY_MODE = os.environ.get("DUMMY_MODE", "true").lower() != "false"
 MODEL_NAME = os.environ.get("MODEL_NAME", "google/flan-t5-base")
 PEFT_MODEL_PATH = os.environ.get("PEFT_MODEL_PATH", "").strip()
+GENERATOR_MODEL_URI = os.environ.get("GENERATOR_MODEL_URI", "").strip()
+MLFLOW_RUN_ID = os.environ.get("MLFLOW_RUN_ID", "").strip()
+MLFLOW_ARTIFACT_PATH = os.environ.get("MLFLOW_ARTIFACT_PATH", "lora_checkpoint").strip() or "lora_checkpoint"
+MLFLOW_DOWNLOAD_DIR = os.environ.get("MLFLOW_DOWNLOAD_DIR", "/tmp/mlflow_artifacts").strip()
 
 # Defaults aligned with training_proj15-main/training/configs/llm_generator_small.yaml
 DEFAULT_GEN_SYSTEM = (
@@ -67,7 +73,99 @@ def _generator_backend() -> str:
         return explicit
     if PEFT_MODEL_PATH:
         return "causal"
+    if (GENERATOR_MODEL_URI or MLFLOW_RUN_ID) and _artifact_looks_like_lora():
+        return "causal"
     return "seq2seq"
+
+
+def _artifact_looks_like_lora() -> bool:
+    hints = [GENERATOR_MODEL_URI, MLFLOW_ARTIFACT_PATH, PEFT_MODEL_PATH]
+    return any(any(marker in hint.lower() for marker in ("lora", "adapter")) for hint in hints if hint)
+
+
+def _resolve_generator_artifact_path(explicit_path: str = "") -> str:
+    if explicit_path:
+        return explicit_path
+    if not GENERATOR_MODEL_URI and not MLFLOW_RUN_ID:
+        return ""
+    try:
+        import mlflow
+        from mlflow.tracking import MlflowClient
+
+        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "").strip()
+        if tracking_uri:
+            mlflow.set_tracking_uri(tracking_uri)
+        target_dir = Path(MLFLOW_DOWNLOAD_DIR)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        if GENERATOR_MODEL_URI:
+            downloaded = mlflow.artifacts.download_artifacts(
+                artifact_uri=GENERATOR_MODEL_URI,
+                dst_path=str(target_dir),
+            )
+            logger.info(
+                "Downloaded generator artifact via registry uri=%s -> %s",
+                GENERATOR_MODEL_URI,
+                downloaded,
+            )
+        else:
+            client = MlflowClient()
+            downloaded = client.download_artifacts(
+                run_id=MLFLOW_RUN_ID,
+                path=MLFLOW_ARTIFACT_PATH,
+                dst_path=str(target_dir),
+            )
+            logger.info(
+                "Downloaded generator artifact from MLflow run=%s path=%s -> %s",
+                MLFLOW_RUN_ID,
+                MLFLOW_ARTIFACT_PATH,
+                downloaded,
+            )
+        return downloaded
+    except Exception as exc:
+        logger.exception(
+            "Failed to resolve generator artifact from MLflow (model_uri=%s run_id=%s path=%s)",
+            GENERATOR_MODEL_URI,
+            MLFLOW_RUN_ID,
+            MLFLOW_ARTIFACT_PATH,
+        )
+        raise RuntimeError("Unable to resolve generator artifact from MLflow") from exc
+
+
+def _read_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _is_peft_adapter_dir(path: str) -> bool:
+    return Path(path, "adapter_config.json").exists()
+
+
+def _resolve_base_model_from_adapter(adapter_dir: str, fallback: str) -> str:
+    cfg = _read_json(Path(adapter_dir) / "adapter_config.json")
+    base_model = str(cfg.get("base_model_name_or_path") or "").strip()
+    return base_model or fallback
+
+
+def _token_count(text: str) -> int:
+    return len(re.findall(r"[a-z0-9']+", text.lower()))
+
+
+def _contains_prompt_leakage(text: str) -> bool:
+    lowered = text.lower()
+    markers = (
+        "tone:",
+        "message:",
+        "formal:",
+        "friendly:",
+        "neutral:",
+        "assistant:",
+        "user:",
+        "<<sys>>",
+        "<</sys>>",
+    )
+    return any(marker in lowered for marker in markers)
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +272,10 @@ def _dedupe_keep_order(values: Iterable[str]) -> list[str]:
     return out
 
 
+def _strip_leading_greeting(text: str) -> str:
+    return re.sub(r"^(hello|hi|hey)[,\s!]+", "", text, flags=re.IGNORECASE).strip()
+
+
 def _normalize_informal_request(text: str) -> str:
     value = f" {text.strip()} "
     replacements = [
@@ -194,6 +296,7 @@ def _normalize_informal_request(text: str) -> str:
     value = re.sub(r"\s+", " ", value).strip(" ,")
     value = re.sub(r"\bjust\b", "", value, flags=re.IGNORECASE)
     value = re.sub(r"\s+", " ", value).strip(" ,")
+    value = _strip_leading_greeting(value)
     return _ensure_sentence(value)
 
 
@@ -291,7 +394,15 @@ def _rewrite_is_degenerate(original: str, rewrite: str) -> bool:
         return True
     if _normalized(original) == _normalized(r):
         return True
+    if _contains_prompt_leakage(r):
+        return True
     if _jaccard_similarity(original, rewrite) > 0.88:
+        return True
+    original_tokens = _token_count(original)
+    rewrite_tokens = _token_count(r)
+    if original_tokens >= 5 and rewrite_tokens <= 2:
+        return True
+    if original_tokens and rewrite_tokens > max(original_tokens * 3, original_tokens + 18):
         return True
     rl = r.lower()
     if "original:" in rl and "rewrite" in rl and len(r) > len(original) + 40:
@@ -424,11 +535,16 @@ class _RealSeq2SeqGenerator:
         from better_profanity import profanity
 
         self._device = "cuda" if torch.cuda.is_available() else "cpu"
-        logger.info("Loading seq2seq generator: %s on %s", MODEL_NAME, self._device)
-        self._tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+        resolved_model = _resolve_generator_artifact_path() or MODEL_NAME
+        logger.info("Loading seq2seq generator: %s on %s", resolved_model, self._device)
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            resolved_model,
+            trust_remote_code=TRUST_REMOTE_CODE,
+        )
         self._model = AutoModelForSeq2SeqLM.from_pretrained(
-            MODEL_NAME,
+            resolved_model,
             torch_dtype=torch.float16 if self._device == "cuda" else torch.float32,
+            trust_remote_code=TRUST_REMOTE_CODE,
         ).to(self._device)
         self._model.eval()
         profanity.load_censor_words()
@@ -441,24 +557,29 @@ class _RealSeq2SeqGenerator:
         variants = {}
         offensive = False
 
-        for tone in TONES:
-            prompt = TONE_PROMPTS[tone].format(text=text)
-            inputs = self._tokenizer(
-                prompt, return_tensors="pt", truncation=True, max_length=MAX_INPUT_LEN
-            ).to(self._device)
-            t0 = time.perf_counter()
-            with self._torch.no_grad():
-                output_ids = self._model.generate(
-                    **inputs,
-                    max_new_tokens=MAX_NEW_TOKENS,
-                    num_beams=SEQ2SEQ_NUM_BEAMS,
-                    early_stopping=True,
-                    no_repeat_ngram_size=SEQ2SEQ_NO_REPEAT_NGRAM,
-                    encoder_repetition_penalty=ENCODER_REPETITION_PENALTY,
-                    repetition_penalty=REPETITION_PENALTY,
-                )
-            tone_latency_ms = (time.perf_counter() - t0) * 1000
-            rewrite = self._tokenizer.decode(output_ids[0], skip_special_tokens=True).strip()
+        prompts = [TONE_PROMPTS[tone].format(text=text) for tone in TONES]
+        inputs = self._tokenizer(
+            prompts,
+            return_tensors="pt",
+            truncation=True,
+            max_length=MAX_INPUT_LEN,
+            padding=True,
+        ).to(self._device)
+        t0 = time.perf_counter()
+        with self._torch.no_grad():
+            output_ids = self._model.generate(
+                **inputs,
+                max_new_tokens=MAX_NEW_TOKENS,
+                num_beams=SEQ2SEQ_NUM_BEAMS,
+                early_stopping=True,
+                no_repeat_ngram_size=SEQ2SEQ_NO_REPEAT_NGRAM,
+                encoder_repetition_penalty=ENCODER_REPETITION_PENALTY,
+                repetition_penalty=REPETITION_PENALTY,
+            )
+        tone_latency_ms = (time.perf_counter() - t0) * 1000
+        rewrites = self._tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+        for tone, rewrite in zip(TONES, rewrites):
+            rewrite = rewrite.strip()
             if self._profanity.contains_profanity(rewrite):
                 offensive = True
             variants[tone] = {"text": rewrite, "tone_latency_ms": round(tone_latency_ms, 2)}
@@ -497,29 +618,44 @@ class _RealCausalGenerator:
 
         self._device = "cuda" if torch.cuda.is_available() else "cpu"
         dtype = torch.float16 if self._device == "cuda" else torch.float32
+        resolved_artifact = _resolve_generator_artifact_path(PEFT_MODEL_PATH)
+        using_adapter = bool(resolved_artifact) and _is_peft_adapter_dir(resolved_artifact)
+        model_source = _resolve_base_model_from_adapter(resolved_artifact, MODEL_NAME) if using_adapter else (
+            resolved_artifact or MODEL_NAME
+        )
+        tokenizer_source = resolved_artifact or model_source
 
         logger.info(
             "Loading causal generator: base=%s peft=%s on %s",
-            MODEL_NAME,
-            PEFT_MODEL_PATH or "(none — full weights at MODEL_NAME)",
+            model_source,
+            resolved_artifact if using_adapter else "(none)",
             self._device,
         )
 
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            MODEL_NAME,
-            trust_remote_code=TRUST_REMOTE_CODE,
-        )
+        try:
+            self._tokenizer = AutoTokenizer.from_pretrained(
+                tokenizer_source,
+                trust_remote_code=TRUST_REMOTE_CODE,
+            )
+        except Exception:
+            if tokenizer_source == model_source:
+                raise
+            logger.warning("Tokenizer load from %s failed; falling back to %s", tokenizer_source, model_source)
+            self._tokenizer = AutoTokenizer.from_pretrained(
+                model_source,
+                trust_remote_code=TRUST_REMOTE_CODE,
+            )
         if self._tokenizer.pad_token is None:
             self._tokenizer.pad_token = self._tokenizer.eos_token
 
         base = AutoModelForCausalLM.from_pretrained(
-            MODEL_NAME,
+            model_source,
             torch_dtype=dtype,
             trust_remote_code=TRUST_REMOTE_CODE,
             low_cpu_mem_usage=True,
         )
-        if PEFT_MODEL_PATH:
-            self._model = PeftModel.from_pretrained(base, PEFT_MODEL_PATH)
+        if using_adapter:
+            self._model = PeftModel.from_pretrained(base, resolved_artifact)
         else:
             self._model = base
         self._model.to(self._device)
@@ -535,31 +671,33 @@ class _RealCausalGenerator:
         variants = {}
         offensive = False
 
+        prompts = []
         for tone in TONES:
             user_content = GEN_USER_TEMPLATE.format(tone=tone, original=text)
-            prompt = _build_causal_prompt(self._tokenizer, GEN_SYSTEM, user_content)
-            inputs = self._tokenizer(
-                prompt,
-                return_tensors="pt",
-                truncation=True,
-                max_length=MAX_CAUSAL_INPUT_LEN,
+            prompts.append(_build_causal_prompt(self._tokenizer, GEN_SYSTEM, user_content))
+        inputs = self._tokenizer(
+            prompts,
+            return_tensors="pt",
+            truncation=True,
+            max_length=MAX_CAUSAL_INPUT_LEN,
+            padding=True,
+        )
+        input_lens = inputs["attention_mask"].sum(dim=1).tolist()
+        inputs = {k: v.to(self._device) for k, v in inputs.items()}
+        t0 = time.perf_counter()
+        with self._torch.no_grad():
+            output_ids = self._model.generate(
+                **inputs,
+                max_new_tokens=MAX_NEW_TOKENS_CAUSAL,
+                pad_token_id=self._tokenizer.pad_token_id,
+                eos_token_id=self._tokenizer.eos_token_id,
+                do_sample=False,
+                num_beams=1,
+                repetition_penalty=REPETITION_PENALTY,
             )
-            inputs = {k: v.to(self._device) for k, v in inputs.items()}
-            input_len = inputs["input_ids"].shape[1]
-            t0 = time.perf_counter()
-            with self._torch.no_grad():
-                output_ids = self._model.generate(
-                    **inputs,
-                    max_new_tokens=MAX_NEW_TOKENS_CAUSAL,
-                    pad_token_id=self._tokenizer.pad_token_id,
-                    eos_token_id=self._tokenizer.eos_token_id,
-                    do_sample=False,
-                    num_beams=1,
-                    repetition_penalty=REPETITION_PENALTY,
-                )
-            tone_latency_ms = (time.perf_counter() - t0) * 1000
-            gen_ids = output_ids[0, input_len:]
-            rewrite = self._tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+        tone_latency_ms = (time.perf_counter() - t0) * 1000
+        for tone, generated_ids, input_len in zip(TONES, output_ids, input_lens):
+            rewrite = self._tokenizer.decode(generated_ids[input_len:], skip_special_tokens=True).strip()
             if self._profanity.contains_profanity(rewrite):
                 offensive = True
             variants[tone] = {"text": rewrite, "tone_latency_ms": round(tone_latency_ms, 2)}

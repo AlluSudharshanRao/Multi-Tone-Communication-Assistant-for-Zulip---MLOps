@@ -4,21 +4,24 @@ Calls the classifier first, then generates 3 tone variants.
 
   POST /generate   → full pipeline (classify + generate all 3 variants)
   GET  /health     → liveness check
+  GET  /ready      → readiness check
   GET  /metrics    → Prometheus metrics
 
 CLASSIFIER_URL env var: URL of the classifier service (default: http://classifier:8001)
 """
 
+import asyncio
 import os
 import logging
+import threading
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from audit_log import log_generator_audit
 from model import ToneGenerator
@@ -68,13 +71,76 @@ class GenerateResponse(BaseModel):
 # App lifecycle
 # ---------------------------------------------------------------------------
 generator = None
+classifier_client: httpx.AsyncClient | None = None
+_load_exc: BaseException | None = None
+_load_done = threading.Event()
+_generator_lock = threading.Lock()
+
+
+def _classifier_fallback() -> dict:
+    return {"predicted_tone": "unknown", "probabilities": {}, "confidence": 0.0, "latency_ms": 0.0}
+
+
+async def _fetch_classifier_result(message_id: str, text: str, message_type: str) -> dict:
+    if classifier_client is None:
+        return _classifier_fallback()
+    try:
+        cls_resp = await classifier_client.post(
+            f"{CLASSIFIER_URL}/predict",
+            json={"message_id": message_id, "text": text, "message_type": message_type},
+        )
+        cls_resp.raise_for_status()
+        return cls_resp.json()
+    except Exception as exc:
+        logger.warning("Classifier call failed: %s — proceeding without classifier result", exc)
+        return _classifier_fallback()
+
+
+def _generate_with_lock(text: str) -> dict:
+    with _generator_lock:
+        if generator is None:
+            raise RuntimeError("Generator not loaded")
+        return generator.generate_all(text)
+
+
+def _load_generator_in_thread() -> None:
+    global generator, _load_exc
+    max_retries = 5
+    wait_s = 15
+    last_exc: BaseException | None = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info("Loading generator (attempt %d/%d)", attempt, max_retries)
+            generator = ToneGenerator()
+            logger.info("Generator ready")
+            last_exc = None
+            break
+        except BaseException as exc:
+            last_exc = exc
+            logger.exception("Generator load attempt %d/%d failed: %s", attempt, max_retries, exc)
+            if attempt < max_retries:
+                logger.info("Retrying generator load in %ds...", wait_s)
+                time.sleep(wait_s)
+                wait_s = min(wait_s * 2, 120)
+    _load_exc = last_exc
+    _load_done.set()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global generator
-    generator = ToneGenerator()
-    yield
+    global generator, classifier_client, _load_exc
     generator = None
+    _load_exc = None
+    _load_done.clear()
+    classifier_client = httpx.AsyncClient(timeout=httpx.Timeout(2.0, connect=0.5))
+    thread = threading.Thread(target=_load_generator_in_thread, name="generator-load", daemon=True)
+    thread.start()
+    yield
+    if classifier_client is not None:
+        await classifier_client.aclose()
+    classifier_client = None
+    generator = None
+    _load_exc = None
+    _load_done.clear()
 
 
 app = FastAPI(
@@ -93,8 +159,23 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/ready")
+def ready():
+    if not _load_done.is_set():
+        return JSONResponse(status_code=503, content={"status": "loading"})
+    if _load_exc is not None:
+        return JSONResponse(status_code=503, content={"status": "error", "detail": str(_load_exc)})
+    if generator is None:
+        return JSONResponse(status_code=503, content={"status": "unknown"})
+    return {"status": "ok"}
+
+
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(request: GenerateRequest):
+    if not _load_done.is_set():
+        raise HTTPException(status_code=503, detail="Model still loading")
+    if _load_exc is not None:
+        raise HTTPException(status_code=503, detail="Model load failed")
     if generator is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
 
@@ -103,31 +184,32 @@ async def generate(request: GenerateRequest):
         raise HTTPException(status_code=422, detail="text field must not be blank")
 
     t_start = time.perf_counter()
-
-    # Step 1: call classifier sidecar
-    try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            cls_resp = await client.post(
-                f"{CLASSIFIER_URL}/predict",
-                json={"message_id": request.message_id, "text": text, "message_type": request.message_type},
-            )
-            cls_resp.raise_for_status()
-            cls_result = cls_resp.json()
-    except Exception as exc:
-        logger.warning("Classifier call failed: %s — proceeding without classifier result", exc)
-        cls_result = {"predicted_tone": "unknown", "probabilities": {}, "confidence": 0.0, "latency_ms": 0.0}
+    classifier_task = asyncio.create_task(
+        _fetch_classifier_result(request.message_id, text, request.message_type)
+    )
 
     # Step 2: generate tone variants
     try:
-        gen_result = generator.generate_all(text)
+        gen_result = await asyncio.to_thread(_generate_with_lock, text)
     except Exception as exc:
+        classifier_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await classifier_task
         REQUEST_COUNT.labels(status="error").inc()
         logger.exception("Generation error: %s", exc)
         raise HTTPException(status_code=500, detail="Generation error") from exc
+    cls_result = await classifier_task
 
     total_ms = (time.perf_counter() - t_start) * 1000
     REQUEST_COUNT.labels(status="ok").inc()
     LATENCY_HIST.observe(total_ms / 1000)
+    if total_ms > LATENCY_BUDGET_MS:
+        logger.warning(
+            "Generator latency budget exceeded: %.2fms > %.2fms for message_id=%s",
+            total_ms,
+            LATENCY_BUDGET_MS,
+            request.message_id,
+        )
 
     variants = {
         tone: ToneVariant(text=v["text"])
