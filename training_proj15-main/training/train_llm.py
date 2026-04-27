@@ -103,10 +103,9 @@ def _build_supervised_text(
     return f"<<SYS>>\n{system}\n<</SYS>>\n\n{user_content}\n{assistant_content}{eos}"
 
 
-def _jsonl_to_rows(cfg: dict[str, Any], tokenizer: Any) -> list[dict[str, str]]:
+def _jsonl_to_rows(path: Path, cfg: dict[str, Any], tokenizer: Any) -> list[dict[str, str]]:
     base = Path(__file__).resolve().parent
     d = cfg["data"]
-    path = _resolve_path(base, d["train_path"])
     tones: list[str] = list(cfg["prompt"]["tones"])
     system = str(cfg["prompt"]["system"])
     user_tmpl = str(cfg["prompt"]["user_template"])
@@ -161,16 +160,23 @@ def train(cfg: dict[str, Any], config_path: Path | None = None) -> None:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    rows = _jsonl_to_rows(cfg, tokenizer)
-    ds_full = Dataset.from_list(rows)
-    vf = float(cfg["data"].get("val_fraction", 0.0))
-    if vf > 0:
-        split = ds_full.train_test_split(test_size=vf, seed=int(cfg["data"]["random_seed"]))
-        train_ds = split["train"]
-        eval_ds = split["test"]
+    train_path = _resolve_path(base, cfg["data"]["train_path"])
+    rows = _jsonl_to_rows(train_path, cfg, tokenizer)
+    eval_path_raw = cfg["data"].get("eval_path")
+    if eval_path_raw:
+        eval_rows = _jsonl_to_rows(_resolve_path(base, str(eval_path_raw)), cfg, tokenizer)
+        train_ds = Dataset.from_list(rows)
+        eval_ds = Dataset.from_list(eval_rows)
     else:
-        train_ds = ds_full
-        eval_ds = None
+        ds_full = Dataset.from_list(rows)
+        vf = float(cfg["data"].get("val_fraction", 0.0))
+        if vf > 0:
+            split = ds_full.train_test_split(test_size=vf, seed=int(cfg["data"]["random_seed"]))
+            train_ds = split["train"]
+            eval_ds = split["test"]
+        else:
+            train_ds = ds_full
+            eval_ds = None
 
     model = AutoModelForCausalLM.from_pretrained(
         model_name,

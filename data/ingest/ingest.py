@@ -1,5 +1,12 @@
+from __future__ import annotations
+
 import json
 import os
+import re
+import shutil
+import urllib.request
+import zipfile
+from pathlib import Path
 
 import boto3
 import pandas as pd
@@ -10,148 +17,297 @@ ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio.ml-platform.svc.cluster.loc
 ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")
 SECRET_KEY = os.getenv("MINIO_SECRET_KEY")
 VERSION = os.getenv("DATA_VERSION", "v1")
+DOWNLOAD_URL = os.getenv(
+    "GYAFC_SOURCE_URL",
+    "https://drive.usercontent.google.com/download?id=1j7JZSfnXlBMrZuuvc4KV1uoVOtS71pTo&export=download&confirm=t",
+)
+LOCAL_ARCHIVE = os.getenv("GYAFC_SOURCE_ARCHIVE", "")
+WORKDIR = Path(os.getenv("GYAFC_WORKDIR", "/tmp/gyafc_ingest"))
+
+TONE_TO_BINARY = {"formal": 1, "neutral": 0, "friendly": -1}
+TONE_TO_SCORE = {"formal": 0.85, "neutral": 0.0, "friendly": -0.85}
+SPLIT_MAP = {"train": "train", "tune": "val", "test": "test"}
+DOMAINS = ("Entertainment_Music", "Family_Relationships")
+ABBREVIATIONS = {
+    " u ": " you ",
+    " ur ": " your ",
+    " pls ": " please ",
+    " plz ": " please ",
+    " btw ": " by the way ",
+    " idk ": " I do not know ",
+    " im ": " I am ",
+    " ive ": " I have ",
+    " dont ": " do not ",
+    " cant ": " cannot ",
+    " wont ": " will not ",
+    " thx ": " thanks ",
+    " cuz ": " because ",
+    " bc ": " because ",
+    " msg ": " message ",
+}
+FILLER_PATTERNS = [
+    r"\blol+\b",
+    r"\blmao+\b",
+    r"\bsmh\b",
+    r"\bomg\b",
+    r"\bya\b",
+]
 
 
-def build_seed_corpus() -> pd.DataFrame:
-    rows = [
-        {"id": "seed-001", "text": "Could you please review this patch when you have a moment?", "binary_label": 1, "community": "seed", "split": "train"},
-        {"id": "seed-002", "text": "Thank you for flagging the issue so quickly.", "binary_label": 1, "community": "seed", "split": "train"},
-        {"id": "seed-003", "text": "Would you mind sharing the stack trace for this failure?", "binary_label": 1, "community": "seed", "split": "train"},
-        {"id": "seed-004", "text": "I appreciate the help with the deployment checklist.", "binary_label": 1, "community": "seed", "split": "train"},
-        {"id": "seed-005", "text": "Please update the ticket once the hotfix is deployed.", "binary_label": 1, "community": "seed", "split": "train"},
-        {"id": "seed-006", "text": "Can you send the metrics after the next training run?", "binary_label": 0, "community": "seed", "split": "train"},
-        {"id": "seed-007", "text": "The service restarted again after the config change.", "binary_label": 0, "community": "seed", "split": "train"},
-        {"id": "seed-008", "text": "I pushed a new model version to the registry.", "binary_label": 0, "community": "seed", "split": "train"},
-        {"id": "seed-009", "text": "The logs show a timeout on the MinIO upload step.", "binary_label": 0, "community": "seed", "split": "train"},
-        {"id": "seed-010", "text": "We should compare the staging and production metrics.", "binary_label": 0, "community": "seed", "split": "train"},
-        {"id": "seed-011", "text": "hey fix this now", "binary_label": -1, "community": "seed", "split": "train"},
-        {"id": "seed-012", "text": "yo can you stop breaking the pipeline", "binary_label": -1, "community": "seed", "split": "train"},
-        {"id": "seed-013", "text": "just push the model already", "binary_label": -1, "community": "seed", "split": "train"},
-        {"id": "seed-014", "text": "why did you ignore the error again", "binary_label": -1, "community": "seed", "split": "train"},
-        {"id": "seed-015", "text": "this dashboard is useless lol", "binary_label": -1, "community": "seed", "split": "train"},
-        {"id": "seed-016", "text": "Could you help confirm the worker node is healthy?", "binary_label": 1, "community": "seed", "split": "test"},
-        {"id": "seed-017", "text": "Please double-check the ingress host after the redeploy.", "binary_label": 1, "community": "seed", "split": "test"},
-        {"id": "seed-018", "text": "The experiment completed and logged metrics to MLflow.", "binary_label": 0, "community": "seed", "split": "test"},
-        {"id": "seed-019", "text": "Can you share the prediction latency numbers?", "binary_label": 0, "community": "seed", "split": "test"},
-        {"id": "seed-020", "text": "hey this rollout is still broken", "binary_label": -1, "community": "seed", "split": "test"},
-        {"id": "seed-021", "text": "just restart the pod and hope it works", "binary_label": -1, "community": "seed", "split": "test"},
-    ]
-    df = pd.DataFrame(rows)
-    score_map = {1: 0.85, 0: 0.0, -1: -0.85}
-    df["normalized_score"] = df["binary_label"].map(score_map)
-    df["synthetic"] = False
-    return df
+def _clean_spacing(text: str) -> str:
+    text = re.sub(r"\s+", " ", text.strip())
+    text = re.sub(r"\s+([,.;!?])", r"\1", text)
+    text = re.sub(r"([!?.,])\1{1,}", r"\1", text)
+    return text
 
 
-def augment(df: pd.DataFrame) -> pd.DataFrame:
-    polite_prefixes = ["Could you please ", "Would you mind ", "I would appreciate it if "]
-    informal_prefixes = ["hey ", "just ", "yo can you "]
-    synthetic_rows = []
-
-    for row in df.to_dict("records"):
-        if row["binary_label"] == 1:
-            for prefix in polite_prefixes:
-                new_row = dict(row)
-                new_row["text"] = prefix + row["text"]
-                new_row["synthetic"] = True
-                synthetic_rows.append(new_row)
-        elif row["binary_label"] == -1:
-            for prefix in informal_prefixes:
-                new_row = dict(row)
-                new_row["text"] = prefix + row["text"]
-                new_row["synthetic"] = True
-                synthetic_rows.append(new_row)
-
-    return pd.concat([df, pd.DataFrame(synthetic_rows)], ignore_index=True)
+def _ensure_terminal_punctuation(text: str) -> str:
+    return text if not text or text[-1] in ".!?" else f"{text}."
 
 
-def stratified_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    train_parts = []
-    val_parts = []
-    test_parts = []
+def _capitalize_sentence(text: str) -> str:
+    if not text:
+        return text
+    return text[0].upper() + text[1:]
 
-    for label, group in df.groupby("binary_label", dropna=False):
-        shuffled = group.sample(frac=1.0, random_state=42).reset_index(drop=True)
-        n = len(shuffled)
-        n_test = max(1, round(n * 0.1))
-        n_val = max(1, round(n * 0.1))
-        if n_test + n_val >= n:
-            n_test = 1
-            n_val = 1 if n > 2 else 0
-        test_parts.append(shuffled.iloc[:n_test])
-        val_parts.append(shuffled.iloc[n_test : n_test + n_val])
-        train_parts.append(shuffled.iloc[n_test + n_val :])
 
-    return (
-        pd.concat(train_parts, ignore_index=True),
-        pd.concat(val_parts, ignore_index=True),
-        pd.concat(test_parts, ignore_index=True),
+def to_friendly(text: str) -> str:
+    cleaned = _clean_spacing(text)
+    return _ensure_terminal_punctuation(_capitalize_sentence(cleaned))
+
+
+def to_neutral(text: str, formal_text: str) -> str:
+    working = f" {text.lower()} "
+    for src, dst in ABBREVIATIONS.items():
+        working = working.replace(src, dst)
+    for pattern in FILLER_PATTERNS:
+        working = re.sub(pattern, " ", working)
+    working = re.sub(r"\b(?:gonna)\b", "going to", working)
+    working = re.sub(r"\b(?:wanna)\b", "want to", working)
+    working = re.sub(r"\b(?:gotta)\b", "have to", working)
+    working = re.sub(r"\b(?:kinda)\b", "kind of", working)
+    working = re.sub(r"\b(?:sorta)\b", "sort of", working)
+    neutral = _clean_spacing(working)
+    neutral = neutral.replace(" i ", " I ")
+    neutral = _ensure_terminal_punctuation(_capitalize_sentence(neutral))
+    if len(neutral) < max(8, len(formal_text.strip()) // 4):
+        neutral = formal_text.strip()
+    return neutral
+
+
+def _download_archive(workdir: Path) -> Path:
+    workdir.mkdir(parents=True, exist_ok=True)
+    if LOCAL_ARCHIVE:
+        archive_path = Path(LOCAL_ARCHIVE)
+        if not archive_path.exists():
+            raise FileNotFoundError(f"GYAFC_SOURCE_ARCHIVE does not exist: {archive_path}")
+        return archive_path
+    archive_path = workdir / "gyafc.zip"
+    print(f"Downloading GYAFC corpus from {DOWNLOAD_URL}")
+    urllib.request.urlretrieve(DOWNLOAD_URL, archive_path)
+    return archive_path
+
+
+def _extract_archive(archive_path: Path, workdir: Path) -> Path:
+    extract_dir = workdir / "extracted"
+    if extract_dir.exists():
+        shutil.rmtree(extract_dir)
+    extract_dir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive_path) as zf:
+        zf.extractall(extract_dir)
+    corpus_dir = extract_dir / "GYAFC_Corpus"
+    if not corpus_dir.exists():
+        raise FileNotFoundError(f"Expected corpus directory missing: {corpus_dir}")
+    return corpus_dir
+
+
+def _read_lines(path: Path) -> list[str]:
+    with path.open("r", encoding="utf-8") as file_obj:
+        return [line.rstrip("\n") for line in file_obj if line.strip()]
+
+
+def build_datasets(corpus_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, int]]:
+    classifier_rows: list[dict[str, object]] = []
+    pair_rows: list[dict[str, object]] = []
+    truncation_summary: dict[str, int] = {}
+
+    for domain in DOMAINS:
+        for gyafc_split, split_name in SPLIT_MAP.items():
+            split_dir = corpus_dir / domain / gyafc_split
+            informal_lines = _read_lines(split_dir / "informal")
+            formal_lines = _read_lines(split_dir / "formal")
+            pair_count = min(len(informal_lines), len(formal_lines))
+            truncation_summary[f"{domain}:{split_name}:informal_rows"] = len(informal_lines)
+            truncation_summary[f"{domain}:{split_name}:formal_rows"] = len(formal_lines)
+            truncation_summary[f"{domain}:{split_name}:paired_rows"] = pair_count
+            for idx in range(pair_count):
+                pair_id = f"{domain.lower()}-{split_name}-{idx:06d}"
+                original_text = informal_lines[idx].strip()
+                formal_text = _clean_spacing(formal_lines[idx].strip())
+                friendly_text = to_friendly(original_text)
+                neutral_text = to_neutral(original_text, formal_text)
+                pair_rows.append(
+                    {
+                        "pair_id": pair_id,
+                        "domain": domain,
+                        "split": split_name,
+                        "original_text": original_text,
+                        "formal": formal_text,
+                        "friendly": friendly_text,
+                        "neutral": neutral_text,
+                        "synthetic_friendly": friendly_text != original_text,
+                        "synthetic_neutral": neutral_text != original_text,
+                    }
+                )
+                for tone, text_value in (
+                    ("formal", formal_text),
+                    ("friendly", friendly_text),
+                    ("neutral", neutral_text),
+                ):
+                    classifier_rows.append(
+                        {
+                            "id": f"{pair_id}:{tone}",
+                            "pair_id": pair_id,
+                            "domain": domain,
+                            "split": split_name,
+                            "source_text": original_text,
+                            "text": text_value,
+                            "tone": tone,
+                            "binary_label": TONE_TO_BINARY[tone],
+                            "normalized_score": TONE_TO_SCORE[tone],
+                            "synthetic": tone != "formal",
+                        }
+                    )
+
+    classifier_df = pd.DataFrame(classifier_rows)
+    pairs_df = pd.DataFrame(pair_rows)
+    return classifier_df, pairs_df, truncation_summary
+
+
+def _write_jsonl(rows: list[dict[str, object]], path: Path) -> None:
+    with path.open("w", encoding="utf-8") as file_obj:
+        for row in rows:
+            file_obj.write(json.dumps(row, ensure_ascii=True) + "\n")
+
+
+def _export_training_assets(classifier_df: pd.DataFrame, pairs_df: pd.DataFrame, workdir: Path) -> dict[str, Path]:
+    assets_dir = workdir / "assets"
+    if assets_dir.exists():
+        shutil.rmtree(assets_dir)
+    assets_dir.mkdir(parents=True, exist_ok=True)
+
+    classifier_csv = assets_dir / "classifier_dataset.csv"
+    classifier_df[["text", "tone", "split"]].to_csv(classifier_csv, index=False)
+
+    generator_train = assets_dir / "generator_train.jsonl"
+    generator_val = assets_dir / "generator_val.jsonl"
+    _write_jsonl(
+        pairs_df.loc[pairs_df["split"] == "train", ["original_text", "formal", "friendly", "neutral"]]
+        .to_dict("records"),
+        generator_train,
+    )
+    _write_jsonl(
+        pairs_df.loc[pairs_df["split"] == "val", ["original_text", "formal", "friendly", "neutral"]]
+        .to_dict("records"),
+        generator_val,
+    )
+
+    parquet_assets = {}
+    for split_name in ("train", "val", "test"):
+        split_path = assets_dir / f"{split_name}.parquet"
+        classifier_df.loc[classifier_df["split"] == split_name].to_parquet(split_path, index=False)
+        parquet_assets[split_name] = split_path
+    full_path = assets_dir / "full.parquet"
+    classifier_df.to_parquet(full_path, index=False)
+    pairs_path = assets_dir / "pairs.parquet"
+    pairs_df.to_parquet(pairs_path, index=False)
+
+    return {
+        "classifier_csv": classifier_csv,
+        "generator_train": generator_train,
+        "generator_val": generator_val,
+        "full": full_path,
+        "pairs": pairs_path,
+        **parquet_assets,
+    }
+
+
+def _make_s3_client():
+    return boto3.client(
+        "s3",
+        endpoint_url=ENDPOINT,
+        aws_access_key_id=ACCESS_KEY,
+        aws_secret_access_key=SECRET_KEY,
+        verify=False,
+        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
     )
 
 
-print("Step 1: Building seed politeness corpus...")
-df = build_seed_corpus()
-print(f"Loaded {len(df)} seed rows")
-print(df["binary_label"].value_counts().to_dict())
-
-print("Step 2: Synthetic augmentation...")
-df_aug = augment(df)
-print(f"After augmentation: {len(df_aug)} rows")
-
-print("Step 3: Train/val/test split...")
-df_train, df_val, df_test = stratified_split(df_aug)
-print(f"Train: {len(df_train)} | Val: {len(df_val)} | Test: {len(df_test)}")
-
-print("Step 4: Uploading to MinIO...")
-s3 = boto3.client(
-    "s3",
-    endpoint_url=ENDPOINT,
-    aws_access_key_id=ACCESS_KEY,
-    aws_secret_access_key=SECRET_KEY,
-    verify=False,
-    config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
-)
-
-try:
-    s3.create_bucket(Bucket=BUCKET)
-    print(f"Bucket '{BUCKET}' created")
-except Exception:
-    print(f"Bucket '{BUCKET}' already exists")
+def _upload_file(s3_client, path: Path, key: str) -> None:
+    s3_client.upload_file(str(path), BUCKET, key)
+    print(f"Uploaded s3://{BUCKET}/{key}")
 
 
-def upload(df_part: pd.DataFrame, name: str) -> None:
-    path = f"/tmp/{name}.parquet"
-    df_part.to_parquet(path, index=False)
-    key = f"raw/{VERSION}/{name}.parquet"
-    s3.upload_file(path, BUCKET, key)
-    print(f"Uploaded {key} ({len(df_part)} rows)")
+def main() -> None:
+    print("Step 1: Downloading and extracting GYAFC...")
+    archive_path = _download_archive(WORKDIR)
+    corpus_dir = _extract_archive(archive_path, WORKDIR)
+
+    print("Step 2: Building classifier and generator datasets from aligned pairs...")
+    classifier_df, pairs_df, truncation_summary = build_datasets(corpus_dir)
+    print(
+        f"Classifier rows={len(classifier_df)} | Pair rows={len(pairs_df)} | "
+        f"splits={classifier_df['split'].value_counts().to_dict()}"
+    )
+
+    print("Step 3: Exporting versioned artifacts...")
+    assets = _export_training_assets(classifier_df, pairs_df, WORKDIR)
+
+    print("Step 4: Uploading artifacts to MinIO...")
+    s3 = _make_s3_client()
+    try:
+        s3.create_bucket(Bucket=BUCKET)
+        print(f"Bucket '{BUCKET}' created")
+    except Exception:
+        print(f"Bucket '{BUCKET}' already exists")
+
+    for name in ("train", "val", "test", "full", "pairs"):
+        _upload_file(s3, assets[name], f"raw/{VERSION}/{name}.parquet")
+    _upload_file(s3, assets["classifier_csv"], f"raw/{VERSION}/classifier_dataset.csv")
+    _upload_file(s3, assets["generator_train"], f"raw/{VERSION}/generator_train.jsonl")
+    _upload_file(s3, assets["generator_val"], f"raw/{VERSION}/generator_val.jsonl")
+
+    manifest = {
+        "version": VERSION,
+        "source": "grammarly_yahoo_answers_formality_corpus",
+        "download_url": DOWNLOAD_URL if not LOCAL_ARCHIVE else "local-archive",
+        "total_classifier_rows": int(len(classifier_df)),
+        "total_generator_pairs": int(len(pairs_df)),
+        "tone_distribution": classifier_df["tone"].value_counts().to_dict(),
+        "split_distribution": classifier_df["split"].value_counts().to_dict(),
+        "synthetic_rows": int(classifier_df["synthetic"].sum()),
+        "truncation_summary": truncation_summary,
+        "artifacts": {
+            "raw_classifier_csv": f"raw/{VERSION}/classifier_dataset.csv",
+            "raw_generator_train_jsonl": f"raw/{VERSION}/generator_train.jsonl",
+            "raw_generator_val_jsonl": f"raw/{VERSION}/generator_val.jsonl",
+            "raw_pairs_parquet": f"raw/{VERSION}/pairs.parquet",
+        },
+        "schema": {
+            "text": "rewritten utterance used by the classifier trainer",
+            "tone": "formal | friendly | neutral",
+            "split": "train | val | test",
+            "binary_label": "1=formal, 0=neutral, -1=friendly",
+            "original_text": "raw informal GYAFC source used by the generator trainer",
+        },
+        "ingested_at": pd.Timestamp.utcnow().isoformat(),
+    }
+    manifest_path = WORKDIR / "manifest.json"
+    with manifest_path.open("w", encoding="utf-8") as file_obj:
+        json.dump(manifest, file_obj, indent=2)
+    _upload_file(s3, manifest_path, f"raw/{VERSION}/manifest.json")
+    print("Ingestion complete.")
 
 
-upload(df_train, "train")
-upload(df_val, "val")
-upload(df_test, "test")
-upload(df_aug, "full")
-
-manifest = {
-    "version": VERSION,
-    "source": "embedded-seed-corpus",
-    "total_rows": len(df_aug),
-    "original_rows": len(df),
-    "synthetic_rows": int(df_aug["synthetic"].sum()),
-    "splits": {"train": len(df_train), "val": len(df_val), "test": len(df_test)},
-    "schema": {
-        "id": "string - sample ID",
-        "text": "string - message text",
-        "normalized_score": "float - approximate politeness score",
-        "binary_label": "int - 1=polite, 0=neutral, -1=impolite",
-        "community": "string - source domain",
-        "split": "string - source split",
-        "synthetic": "bool - True if augmented",
-    },
-    "ingested_at": pd.Timestamp.utcnow().isoformat(),
-}
-with open("/tmp/manifest.json", "w", encoding="utf-8") as file_obj:
-    json.dump(manifest, file_obj, indent=2)
-s3.upload_file("/tmp/manifest.json", BUCKET, f"raw/{VERSION}/manifest.json")
-print("Manifest uploaded.")
-print("Ingestion complete!")
+if __name__ == "__main__":
+    main()

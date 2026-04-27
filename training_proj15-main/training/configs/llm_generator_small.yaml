@@ -19,8 +19,9 @@ lora:
     - v_proj
 
 data:
-  train_path: data/generator_train.jsonl
-  val_fraction: 0.15
+  train_path: /data/batch/latest/generator_train.jsonl
+  eval_path: /data/batch/latest/generator_val.jsonl
+  val_fraction: 0.0
   max_samples: null
   random_seed: 42
 

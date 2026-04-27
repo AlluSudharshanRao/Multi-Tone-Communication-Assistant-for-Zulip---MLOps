@@ -5,7 +5,7 @@ description: "RandomForest + TF-IDF; explores higher capacity vs training cost."
 
 data:
   dataset: tone_csv
-  csv_path: data/tone_seed.csv
+  csv_path: /data/batch/latest/classifier_dataset.csv
   label_classes:
     - formal
     - friendly
