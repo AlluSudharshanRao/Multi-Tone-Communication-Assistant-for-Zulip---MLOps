@@ -147,31 +147,19 @@ jobs:
             exit 1
           fi
 
-      - name: Render floating IP placeholders
+      - name: Render public nip.io hostnames
         env:
           CONTROL_PLANE_HOST: ${{ vars.CONTROL_PLANE_HOST }}
+          PUBLIC_NIP_BASE: ${{ vars.PUBLIC_NIP_BASE }}
         run: |
           set -euo pipefail
-          if [ -z "${CONTROL_PLANE_HOST:-}" ]; then
-            echo "::error::Missing Actions variable CONTROL_PLANE_HOST."
+          PUBLIC_BASE="${PUBLIC_NIP_BASE:-${CONTROL_PLANE_HOST}.nip.io}"
+          if [ -z "${PUBLIC_BASE:-}" ] || [ "$PUBLIC_BASE" = ".nip.io" ]; then
+            echo "::error::Unable to determine PUBLIC_NIP_BASE. Set Actions variable PUBLIC_NIP_BASE or CONTROL_PLANE_HOST."
             exit 1
           fi
 
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-
-          host = os.environ["CONTROL_PLANE_HOST"]
-          files = [
-              Path("k8s/platform/observability/deployment-grafana.yaml"),
-              Path("k8s/platform/observability/ingress-grafana.yaml"),
-              Path("k8s/platform/observability/ingress-prometheus.yaml"),
-          ]
-
-          for path in files:
-              text = path.read_text(encoding="utf-8")
-              path.write_text(text.replace("FLOATING_IP_PLACEHOLDER", host), encoding="utf-8")
-          PY
+          python3 k8s/scripts/render_public_endpoints.py --base "$PUBLIC_BASE"
 
       - name: Apply observability manifests
         env:
