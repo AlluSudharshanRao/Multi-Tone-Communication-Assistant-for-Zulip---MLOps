@@ -30,10 +30,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: deploy-serving-staging-${{ github.event.workflow_run.head_branch || github.ref_name || github.run_id }}
-  cancel-in-progress: true
-
 jobs:
   classify-trigger:
     # For workflow_run trigger, only run if the upstream build succeeded.
@@ -79,6 +75,9 @@ jobs:
     needs: classify-trigger
     if: ${{ needs.classify-trigger.outputs.skip_deploy != 'true' }}
     runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-serving-staging-${{ github.event.workflow_run.head_branch || github.ref_name || github.run_id }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
         with:
