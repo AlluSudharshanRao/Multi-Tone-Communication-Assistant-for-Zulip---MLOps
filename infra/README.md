@@ -27,6 +27,12 @@ Full Ansible bring-up:
 ./infra/run-ansible
 ```
 
+Safe rerun for an existing live cluster:
+
+```bash
+./infra/run-ansible --skip-pvc-migration
+```
+
 `run-ansible` prints a short preflight summary before it starts so you can see whether it will:
 - auto-generate self-signed TLS
 - auto-render Zulip secret values

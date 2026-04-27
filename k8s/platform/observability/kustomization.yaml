@@ -27,3 +27,4 @@ configMapGenerator:
     files:
       - dashboards/ml-serving-tone.json
       - dashboards/infra-health.json
+      - dashboards/data-pipeline-quality.json

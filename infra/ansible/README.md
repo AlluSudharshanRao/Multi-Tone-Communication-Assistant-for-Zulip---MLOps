@@ -59,6 +59,12 @@ Equivalent single-command wrapper:
 ./infra/run-ansible
 ```
 
+For normal reruns after the initial storage migration, use:
+
+```bash
+./infra/run-ansible --skip-pvc-migration
+```
+
 ## Notes
 
 - The playbooks only run cluster-admin actions on `control_plane`.
@@ -71,7 +77,8 @@ Equivalent single-command wrapper:
   already-bound PVCs off the root disk.
 - `migrate_platform_pvcs_to_block.yml` performs a stop-copy-recreate-restore migration
   for MinIO, MLflow, Prometheus, and Grafana PVCs. Run it only after
-  `prepare_block_storage.yml` and a fresh `deploy_platform.yml`.
+  `prepare_block_storage.yml` and a fresh `deploy_platform.yml`, and treat it as a one-time
+  disruptive migration or explicit recovery step rather than a normal rerun stage.
 - `deploy_backups.yml` expects these environment variables in the local shell that
   runs Ansible:
   - `CHAMELEON_OBJECTSTORE_BUCKET`

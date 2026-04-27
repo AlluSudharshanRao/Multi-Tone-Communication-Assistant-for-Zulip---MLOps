@@ -7,7 +7,7 @@ This directory contains the cluster workloads applied by Ansible and, when neede
 | Path | Namespace | Purpose |
 |------|-----------|---------|
 | `base/` | cluster-wide | namespace definitions |
-| `secrets/` | mixed | centralized SealedSecret manifests for shared runtime secrets |
+| `secrets/` | mixed | optional static SealedSecret manifests; not required for the default Ansible bootstrap path |
 | `platform/mlflow/` | `ml-platform` | MLflow |
 | `platform/minio/` | `ml-platform` | MinIO API and console |
 | `platform/observability/` | `monitoring` | Prometheus, Grafana, Alertmanager |
@@ -22,11 +22,14 @@ This directory contains the cluster workloads applied by Ansible and, when neede
 ## Notes
 
 - Floating-IP-based hostnames are rewritten on the VM during Ansible deploy.
+- The default runtime secret flow is Ansible bootstrap plus Sealed Secrets controller install. `k8s/secrets/` is optional and cluster-key-specific.
 - `ml-serving` uses tiered inference:
   - `staging`
   - `canary`
   - `prod`
 - The tone generator source file used by the cluster is mounted from a ConfigMap generated in `k8s/inference/base/`.
+- Observability includes a `Data Monitoring and Quality` Grafana dashboard from `k8s/platform/observability/dashboards/data-pipeline-quality.json`.
+- The bridge deployment exposes Prometheus metrics and must remain scrape-enabled for bridge feedback and feature-log panels to populate.
 
 ## Typical apply paths
 
