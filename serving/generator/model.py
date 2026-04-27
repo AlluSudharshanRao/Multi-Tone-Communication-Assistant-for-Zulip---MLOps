@@ -389,40 +389,51 @@ def _normalized(s: str) -> str:
 
 
 def _rewrite_is_degenerate(original: str, rewrite: str) -> bool:
+    return bool(_degeneracy_reasons(original, rewrite))
+
+
+def _degeneracy_reasons(original: str, rewrite: str) -> list[str]:
+    reasons: list[str] = []
     r = rewrite.strip()
     if not r:
-        return True
+        reasons.append("empty")
+        return reasons
     if _normalized(original) == _normalized(r):
-        return True
+        reasons.append("unchanged")
     if _contains_prompt_leakage(r):
-        return True
+        reasons.append("prompt_leakage")
     if _jaccard_similarity(original, rewrite) > 0.88:
-        return True
+        reasons.append("near_copy")
     original_tokens = _token_count(original)
     rewrite_tokens = _token_count(r)
     if original_tokens >= 5 and rewrite_tokens <= 2:
-        return True
+        reasons.append("too_short")
     if original_tokens and rewrite_tokens > max(original_tokens * 3, original_tokens + 18):
-        return True
+        reasons.append("too_long")
     rl = r.lower()
     if "original:" in rl and "rewrite" in rl and len(r) > len(original) + 40:
-        return True
-    return False
+        reasons.append("prompt_echo")
+    return reasons
 
 
 def _tone_specific_badness(original: str, rewrite: str, tone: str) -> bool:
+    return bool(_tone_specific_badness_reasons(original, rewrite, tone))
+
+
+def _tone_specific_badness_reasons(original: str, rewrite: str, tone: str) -> list[str]:
+    reasons: list[str] = []
     lowered = rewrite.lower()
     if tone == "formal" and _contains_slang(lowered):
-        return True
+        reasons.append("formal_slang")
     if tone == "formal" and any(phrase in lowered for phrase in ["hey man", "what's up", "whats up"]):
-        return True
+        reasons.append("formal_casual_greeting")
     if tone == "friendly" and lowered.startswith("dear "):
-        return True
+        reasons.append("friendly_overformal")
     if tone == "neutral" and ("thanks so much" in lowered or "prompt attention" in lowered):
-        return True
+        reasons.append("neutral_overstylized")
     if _jaccard_similarity(original, rewrite) > 0.84 and _contains_slang(original):
-        return True
-    return False
+        reasons.append("slang_copy")
+    return reasons
 
 
 def _pick_better_fallback(original: str, tone: str, fallbacks: dict[str, str], used: set[str]) -> str:
@@ -443,26 +454,62 @@ def _pick_better_fallback(original: str, tone: str, fallbacks: dict[str, str], u
     return fallback
 
 
-def _finalize_variants(original: str, raw_variants: dict[str, dict[str, float | str]]) -> dict[str, dict[str, float | str]]:
+def _finalize_variants(original: str, raw_variants: dict[str, dict[str, float | str]]) -> tuple[
+    dict[str, dict[str, float | str | list[str] | None]],
+    dict[str, object],
+]:
     fallbacks = _fallback_rewrite_texts(_clean(original))
     used: set[str] = set()
-    finalized: dict[str, dict[str, float | str]] = {}
+    finalized: dict[str, dict[str, float | str | list[str] | None]] = {}
+    variant_diagnostics: dict[str, dict[str, object]] = {}
+    fallback_count = 0
     for tone in TONES:
         variant = raw_variants[tone]
-        rewrite = _ensure_sentence(str(variant["text"]))
-        if _rewrite_is_degenerate(original, rewrite) or _tone_specific_badness(original, rewrite, tone):
+        raw_rewrite = _ensure_sentence(str(variant["text"]))
+        rewrite = raw_rewrite
+        quality_flags = _degeneracy_reasons(original, rewrite) + _tone_specific_badness_reasons(original, rewrite, tone)
+        fallback_reason: str | None = None
+        source = "model"
+        if quality_flags:
             rewrite = _pick_better_fallback(original, tone, fallbacks, used)
+            fallback_reason = quality_flags[0]
+            source = "fallback"
         else:
             normalized = _normalized(rewrite)
             if normalized in used:
                 rewrite = _pick_better_fallback(original, tone, fallbacks, used)
+                quality_flags = ["duplicate_variant"]
+                fallback_reason = "duplicate_variant"
+                source = "fallback"
             else:
                 used.add(normalized)
+        if source == "fallback":
+            fallback_count += 1
         finalized[tone] = {
             "text": rewrite,
             "tone_latency_ms": variant["tone_latency_ms"],
+            "source": source,
+            "fallback_reason": fallback_reason,
+            "quality_flags": quality_flags,
         }
-    return finalized
+        variant_diagnostics[tone] = {
+            "source": source,
+            "fallback_reason": fallback_reason,
+            "quality_flags": quality_flags,
+        }
+    model_count = len(TONES) - fallback_count
+    request_path = "all_model"
+    if fallback_count == len(TONES):
+        request_path = "all_fallback"
+    elif fallback_count > 0:
+        request_path = "mixed_fallback"
+    diagnostics: dict[str, object] = {
+        "request_path": request_path,
+        "fallback_variant_count": fallback_count,
+        "model_variant_count": model_count,
+        "variant_diagnostics": variant_diagnostics,
+    }
+    return finalized, diagnostics
 
 
 class _DummyGenerator:
@@ -489,11 +536,12 @@ class _DummyGenerator:
                 "text": rewrite,
                 "tone_latency_ms": round(sleep_s * 1000, 2),
             }
-        variants = _finalize_variants(text, variants)
+        variants, diagnostics = _finalize_variants(text, variants)
 
         total_latency_ms = (time.perf_counter() - t_total) * 1000
         return {
             "variants": variants,
+            "diagnostics": diagnostics,
             "offensive_content_flagged": offensive,
             "total_latency_ms": round(total_latency_ms, 2),
         }
@@ -583,11 +631,12 @@ class _RealSeq2SeqGenerator:
             if self._profanity.contains_profanity(rewrite):
                 offensive = True
             variants[tone] = {"text": rewrite, "tone_latency_ms": round(tone_latency_ms, 2)}
-        variants = _finalize_variants(text, variants)
+        variants, diagnostics = _finalize_variants(text, variants)
 
         total_latency_ms = (time.perf_counter() - t_total) * 1000
         return {
             "variants": variants,
+            "diagnostics": diagnostics,
             "offensive_content_flagged": offensive,
             "total_latency_ms": round(total_latency_ms, 2),
         }
@@ -701,11 +750,12 @@ class _RealCausalGenerator:
             if self._profanity.contains_profanity(rewrite):
                 offensive = True
             variants[tone] = {"text": rewrite, "tone_latency_ms": round(tone_latency_ms, 2)}
-        variants = _finalize_variants(text, variants)
+        variants, diagnostics = _finalize_variants(text, variants)
 
         total_latency_ms = (time.perf_counter() - t_total) * 1000
         return {
             "variants": variants,
+            "diagnostics": diagnostics,
             "offensive_content_flagged": offensive,
             "total_latency_ms": round(total_latency_ms, 2),
         }

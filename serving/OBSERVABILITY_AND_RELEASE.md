@@ -14,6 +14,11 @@ Examples:
 - `classifier_latency_seconds_*`
 - `generator_requests_total`
 - `generator_latency_seconds_*`
+- `generator_variant_source_total`
+- `generator_fallback_reason_total`
+- `generator_request_path_total`
+- `generator_queue_wait_seconds_*`
+- `generator_inflight_requests`
 - bridge feedback counters
 
 ## Where to view them
@@ -39,6 +44,9 @@ Replace `<floating-ip>` with the current control-plane floating IP.
 - smoke tests return valid JSON
 - Zulip bridge returns suggestions
 - generator latency remains acceptable for demo use
+- generator fallback ratio stays low enough that the model, not rescue logic, is doing most of the work
+- recent feedback approval is healthy enough to trust promotion decisions
+- queue wait remains low under canary traffic so the generator is not already saturating
 
 ## Rollback trigger examples
 
@@ -46,3 +54,6 @@ Replace `<floating-ip>` with the current control-plane floating IP.
 - bridge starts timing out consistently
 - generator outputs collapse into identical or obviously degenerate rewrites
 - model alias registration fails and serving cannot load artifacts
+- fallback ratio spikes after a promotion
+- thumbs-up or selected feedback drops materially while traffic volume remains meaningful
+- queue wait climbs even when classifier latency stays healthy

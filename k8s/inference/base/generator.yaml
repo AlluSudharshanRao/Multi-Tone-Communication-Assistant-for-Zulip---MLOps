@@ -51,6 +51,10 @@ spec:
               value: "http://classifier-pytorch:8001"
             - name: LATENCY_BUDGET_MS
               value: "600"
+            - name: GENERATOR_MAX_CONCURRENT
+              value: "1"
+            - name: GENERATOR_MAX_QUEUE_WAIT_MS
+              value: "250"
             - name: MLFLOW_TRACKING_URI
               value: "http://mlflow.ml-platform.svc.cluster.local:5000"
             - name: MLFLOW_ARTIFACT_PATH

@@ -35,6 +35,9 @@ an MLflow registry alias such as `models:/tone-generator-lora@canary` or
 - The generator now benefits from stronger post-processing guards, but that still complements
   model quality rather than replacing better training data.
 - Generator latency is lowest when the three tone rewrites are generated in one batched pass.
+- Generator responses now expose whether each tone came from the model or from fallback rescue,
+  which makes canary and rollback evaluation less ambiguous.
+- Queue wait and inflight metrics now make generator saturation visible earlier than plain p95 latency.
 
 ## Important tradeoff
 
