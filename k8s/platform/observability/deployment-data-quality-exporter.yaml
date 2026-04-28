@@ -20,19 +20,30 @@ spec:
         prometheus.io/port: "9108"
         prometheus.io/path: /metrics
     spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      tolerations:
+        - key: node.kubernetes.io/disk-pressure
+          operator: Exists
+          effect: NoSchedule
+      volumes:
+        - name: data-quality-runtime
+          configMap:
+            name: data-quality-runtime
       containers:
         - name: data-quality-exporter
-          image: zulip-data-quality-exporter:latest
+          image: python:3.11-slim
           imagePullPolicy: IfNotPresent
           command:
-            - zulip-data-quality-exporter
+            - sh
+            - -c
           args:
-            - --config
-            - /app/config/data_quality.yaml
-            - --port
-            - "9108"
-            - --interval-seconds
-            - "300"
+            - >-
+              pip install --no-cache-dir /app &&
+              zulip-data-quality-exporter
+              --config /app/config/data_quality.yaml
+              --port 9108
+              --interval-seconds 300
           env:
             - name: MINIO_ACCESS_KEY
               valueFrom:
@@ -47,6 +58,61 @@ spec:
           ports:
             - name: metrics
               containerPort: 9108
+          volumeMounts:
+            - name: data-quality-runtime
+              mountPath: /app/pyproject.toml
+              subPath: pyproject.toml
+            - name: data-quality-runtime
+              mountPath: /app/config/data_quality.yaml
+              subPath: config.data_quality.yaml
+            - name: data-quality-runtime
+              mountPath: /app/src/zulip_data_quality_monitoring/__init__.py
+              subPath: src.zulip_data_quality_monitoring.__init__.py
+            - name: data-quality-runtime
+              mountPath: /app/src/zulip_data_quality_monitoring/cli.py
+              subPath: src.zulip_data_quality_monitoring.cli.py
+            - name: data-quality-runtime
+              mountPath: /app/src/zulip_data_quality_monitoring/config.py
+              subPath: src.zulip_data_quality_monitoring.config.py
+            - name: data-quality-runtime
+              mountPath: /app/src/zulip_data_quality_monitoring/exporter.py
+              subPath: src.zulip_data_quality_monitoring.exporter.py
+            - name: data-quality-runtime
+              mountPath: /app/src/zulip_data_quality_monitoring/metrics.py
+              subPath: src.zulip_data_quality_monitoring.metrics.py
+            - name: data-quality-runtime
+              mountPath: /app/src/zulip_data_quality_monitoring/models.py
+              subPath: src.zulip_data_quality_monitoring.models.py
+            - name: data-quality-runtime
+              mountPath: /app/src/zulip_data_quality_monitoring/reporting.py
+              subPath: src.zulip_data_quality_monitoring.reporting.py
+            - name: data-quality-runtime
+              mountPath: /app/src/zulip_data_quality_monitoring/runner.py
+              subPath: src.zulip_data_quality_monitoring.runner.py
+            - name: data-quality-runtime
+              mountPath: /app/src/zulip_data_quality_monitoring/storage.py
+              subPath: src.zulip_data_quality_monitoring.storage.py
+            - name: data-quality-runtime
+              mountPath: /app/src/zulip_data_quality_monitoring/checks/__init__.py
+              subPath: src.zulip_data_quality_monitoring.checks.__init__.py
+            - name: data-quality-runtime
+              mountPath: /app/src/zulip_data_quality_monitoring/checks/base.py
+              subPath: src.zulip_data_quality_monitoring.checks.base.py
+            - name: data-quality-runtime
+              mountPath: /app/src/zulip_data_quality_monitoring/checks/batch.py
+              subPath: src.zulip_data_quality_monitoring.checks.batch.py
+            - name: data-quality-runtime
+              mountPath: /app/src/zulip_data_quality_monitoring/checks/drift.py
+              subPath: src.zulip_data_quality_monitoring.checks.drift.py
+            - name: data-quality-runtime
+              mountPath: /app/src/zulip_data_quality_monitoring/checks/feedback.py
+              subPath: src.zulip_data_quality_monitoring.checks.feedback.py
+            - name: data-quality-runtime
+              mountPath: /app/src/zulip_data_quality_monitoring/checks/online.py
+              subPath: src.zulip_data_quality_monitoring.checks.online.py
+            - name: data-quality-runtime
+              mountPath: /app/src/zulip_data_quality_monitoring/checks/raw_dataset.py
+              subPath: src.zulip_data_quality_monitoring.checks.raw_dataset.py
           resources:
             requests:
               cpu: "100m"

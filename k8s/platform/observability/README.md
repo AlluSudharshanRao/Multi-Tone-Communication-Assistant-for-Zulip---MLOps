@@ -76,6 +76,16 @@ If dashboards are changed, re-apply:
 kubectl apply -k k8s/platform/observability/
 ```
 
+## Data Quality Exporter Runtime
+
+The `data-quality-exporter` Deployment is now bootstrapped directly from repo-managed runtime files instead of relying on a prebuilt node-local image. The observability kustomization generates a `data-quality-runtime` ConfigMap from [monitoring/data_quality](C:\Users\sudha\OneDrive\Desktop\MLOps\Multi-Tone-Communication-Assistant-for-Zulip---MLOps\monitoring\data_quality), mounts that runtime into the pod, and starts it on `python:3.11-slim`.
+
+Operational notes:
+
+- `minio-root` must exist in the `monitoring` namespace because the exporter reads batch, feedback, and drift artifacts directly from MinIO.
+- the Deployment is pinned to the control-plane node and tolerates temporary `disk-pressure` so monitoring stays available even if the worker is under storage pressure.
+- if you change exporter source code, re-apply `kubectl apply -k k8s/platform/observability/` to refresh the runtime ConfigMap and restart the Deployment.
+
 ## Alerts
 
 Prometheus evaluates alert rules from `configmap-prometheus.yaml` and forwards them to Alertmanager.

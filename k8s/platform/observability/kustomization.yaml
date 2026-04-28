@@ -22,6 +22,28 @@ resources:
   - ingress-grafana.yaml
   - ingress-prometheus.yaml
 configMapGenerator:
+  - name: data-quality-runtime
+    options:
+      disableNameSuffixHash: true
+    files:
+      - pyproject.toml=data-quality-runtime/pyproject.toml
+      - config.data_quality.yaml=data-quality-runtime/config/data_quality.yaml
+      - src.zulip_data_quality_monitoring.__init__.py=data-quality-runtime/src/zulip_data_quality_monitoring/__init__.py
+      - src.zulip_data_quality_monitoring.cli.py=data-quality-runtime/src/zulip_data_quality_monitoring/cli.py
+      - src.zulip_data_quality_monitoring.config.py=data-quality-runtime/src/zulip_data_quality_monitoring/config.py
+      - src.zulip_data_quality_monitoring.exporter.py=data-quality-runtime/src/zulip_data_quality_monitoring/exporter.py
+      - src.zulip_data_quality_monitoring.metrics.py=data-quality-runtime/src/zulip_data_quality_monitoring/metrics.py
+      - src.zulip_data_quality_monitoring.models.py=data-quality-runtime/src/zulip_data_quality_monitoring/models.py
+      - src.zulip_data_quality_monitoring.reporting.py=data-quality-runtime/src/zulip_data_quality_monitoring/reporting.py
+      - src.zulip_data_quality_monitoring.runner.py=data-quality-runtime/src/zulip_data_quality_monitoring/runner.py
+      - src.zulip_data_quality_monitoring.storage.py=data-quality-runtime/src/zulip_data_quality_monitoring/storage.py
+      - src.zulip_data_quality_monitoring.checks.__init__.py=data-quality-runtime/src/zulip_data_quality_monitoring/checks/__init__.py
+      - src.zulip_data_quality_monitoring.checks.base.py=data-quality-runtime/src/zulip_data_quality_monitoring/checks/base.py
+      - src.zulip_data_quality_monitoring.checks.batch.py=data-quality-runtime/src/zulip_data_quality_monitoring/checks/batch.py
+      - src.zulip_data_quality_monitoring.checks.drift.py=data-quality-runtime/src/zulip_data_quality_monitoring/checks/drift.py
+      - src.zulip_data_quality_monitoring.checks.feedback.py=data-quality-runtime/src/zulip_data_quality_monitoring/checks/feedback.py
+      - src.zulip_data_quality_monitoring.checks.online.py=data-quality-runtime/src/zulip_data_quality_monitoring/checks/online.py
+      - src.zulip_data_quality_monitoring.checks.raw_dataset.py=data-quality-runtime/src/zulip_data_quality_monitoring/checks/raw_dataset.py
   - name: grafana-dashboard-ml-serving
     options:
       labels:
