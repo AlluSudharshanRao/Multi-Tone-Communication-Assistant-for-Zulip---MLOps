@@ -57,6 +57,12 @@ Grafana provisions the `MLOps` folder automatically. The current dashboards are:
   - feature-log activity
   - data and training job health
   - data and training pod restarts
+- `Data Quality Health`
+  - raw and batch row counts
+  - null, duplicate, and invalid-label signals
+  - online log volume and error rate
+  - feedback approval and preferred-text rates
+  - drift PSI and batch merge volume
 - `Platform Operations`
   - Traefik / ingress health
   - block-volume and root-disk free space
@@ -92,6 +98,13 @@ Current serving alerts:
 - `ServingGeneratorFallbackRatioHigh`
 - `ServingGeneratorFeedbackApprovalLow`
 - `ServingGeneratorQueueWaitP95High`
+
+Current data quality alerts:
+
+- `DataQualityExporterDown`
+- `DataQualityApprovalRateLow`
+- `DataQualityOnlineErrorRateHigh`
+- `DataQualityDriftHigh`
 
 Alertmanager supports SMTP email delivery through deployment-time variable injection. Set these before running `deploy_platform.yml`:
 

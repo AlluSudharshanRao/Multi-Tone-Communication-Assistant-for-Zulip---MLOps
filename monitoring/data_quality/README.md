@@ -8,9 +8,7 @@ This is a practical monitoring structure for the data layer in your repository:
 - `data/online`: feature extraction and online logging
 - `data/retrain_trigger`: retraining policy based on quality and drift proxies
 
-## Suggested repo placement
-
-If you want to merge this into your repository, a clean home would be:
+## Architecture
 
 ```text
 monitoring/
@@ -31,6 +29,24 @@ monitoring/
 - Feedback approval, correction, and training usability rates
 - Simple drift signals between reference train data and current datasets
 
+## Prometheus and Grafana
+
+This package now supports live observability:
+
+- `zulip-data-quality-exporter` scans MinIO and exposes Prometheus metrics on `/metrics`
+- Prometheus scrapes the exporter pod
+- Grafana dashboard JSON is provisioned under the existing `MLOps` folder
+- Prometheus rules can alert on low approval, high online error rate, and drift
+
+Main metric families:
+
+- `data_quality_raw_*`
+- `data_quality_batch_*`
+- `data_quality_online_*`
+- `data_quality_feedback_*`
+- `data_quality_drift_psi`
+- `data_quality_exporter_last_success_timestamp`
+
 ## Run
 
 ```bash
@@ -41,26 +57,17 @@ pip install -e .
 zulip-data-quality --config config/data_quality.yaml
 ```
 
+To run the exporter locally instead:
+
+```bash
+zulip-data-quality-exporter --config config/data_quality.yaml
+```
+
 ## Output
 
 The command writes:
 
 - `reports/data_quality_report.json`
 - `reports/data_quality_report.md`
-
-## Notes for your repo
-
-Your current pipeline stores data in MinIO under prefixes like:
-
-- `raw/<version>/train.parquet`
-- `raw/<version>/val.parquet`
-- `raw/<version>/test.parquet`
-- `raw/<version>/manifest.json`
-- `batch/<batch_version>/train.parquet`
-- `batch/<batch_version>/test.parquet`
-- `batch/<batch_version>/manifest.json`
-- `batch/<batch_date>/feedback_manifest.json`
-- `online_logs/*.json`
-- `feedback/YYYY-MM-DD/*.json`
 
 This monitoring code is built specifically around that layout.

@@ -340,3 +340,46 @@ data:
             annotations:
               summary: "Prometheus configuration reload failed"
               description: "Inspect Prometheus logs and the prometheus-config ConfigMap."
+
+      - name: data_quality
+        interval: 30s
+        rules:
+          - alert: DataQualityExporterDown
+            expr: data_quality_exporter_up != 1
+            for: 5m
+            labels:
+              severity: warning
+              component: data-quality
+            annotations:
+              summary: "Data quality exporter is down"
+              description: "Prometheus has stopped receiving successful refreshes from the data quality exporter."
+
+          - alert: DataQualityApprovalRateLow
+            expr: data_quality_feedback_approval_rate < 0.70
+            for: 15m
+            labels:
+              severity: warning
+              component: data-quality
+            annotations:
+              summary: "Feedback approval rate is low"
+              description: "Recent feedback approval rate has fallen below 70%."
+
+          - alert: DataQualityOnlineErrorRateHigh
+            expr: data_quality_online_error_rate > 0.10
+            for: 10m
+            labels:
+              severity: warning
+              component: data-quality
+            annotations:
+              summary: "Online rewrite error rate is high"
+              description: "Online log failures are above 10%, which can degrade both serving and training quality."
+
+          - alert: DataQualityDriftHigh
+            expr: max by (feature) (data_quality_drift_psi) > 0.20
+            for: 30m
+            labels:
+              severity: warning
+              component: data-quality
+            annotations:
+              summary: "Data drift PSI is high"
+              description: "At least one monitored feature shows PSI above 0.20 between raw and batch data."

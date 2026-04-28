@@ -1,0 +1,72 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-quality-exporter
+  namespace: monitoring
+  labels:
+    app: data-quality-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: data-quality-exporter
+  template:
+    metadata:
+      labels:
+        app: data-quality-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9108"
+        prometheus.io/path: /metrics
+    spec:
+      containers:
+        - name: data-quality-exporter
+          image: zulip-data-quality-exporter:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - zulip-data-quality-exporter
+          args:
+            - --config
+            - /app/config/data_quality.yaml
+            - --port
+            - "9108"
+            - --interval-seconds
+            - "300"
+          env:
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-user
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-password
+          ports:
+            - name: metrics
+              containerPort: 9108
+          resources:
+            requests:
+              cpu: "100m"
+              memory: 192Mi
+            limits:
+              cpu: "500m"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-quality-exporter
+  namespace: monitoring
+  labels:
+    app: data-quality-exporter
+spec:
+  type: ClusterIP
+  selector:
+    app: data-quality-exporter
+  ports:
+    - name: metrics
+      port: 9108
+      targetPort: metrics

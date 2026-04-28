@@ -14,6 +14,7 @@ resources:
   - deployment-prometheus.yaml
   - deployment-alertmanager.yaml
   - hpa-alertmanager.yaml
+  - deployment-data-quality-exporter.yaml
   - configmap-grafana-datasources.yaml
   - configmap-grafana-dashboard-provider.yaml
   - pvc-grafana.yaml
@@ -32,3 +33,4 @@ configMapGenerator:
       - dashboards/infra-health.json
       - dashboards/data-pipeline-quality.json
       - dashboards/platform-operations.json
+      - dashboards/data-quality.json

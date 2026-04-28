@@ -1,5 +1,5 @@
 storage:
-  endpoint_url: "http://localhost:9000"
+  endpoint_url: "http://minio.ml-platform.svc.cluster.local:9000"
   bucket: "zulip-rewriter"
   access_key_env: "MINIO_ACCESS_KEY"
   secret_key_env: "MINIO_SECRET_KEY"
