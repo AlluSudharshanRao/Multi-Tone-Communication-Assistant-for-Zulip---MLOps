@@ -5,3 +5,4 @@ kind: Kustomization
 namespace: ml-serving
 resources:
   - zulip-bridge-deployment.yaml
+  - hpa-zulip-bridge.yaml

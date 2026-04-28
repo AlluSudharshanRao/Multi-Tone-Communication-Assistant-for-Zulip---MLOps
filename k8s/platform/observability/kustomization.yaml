@@ -6,12 +6,14 @@ namespace: monitoring
 resources:
   - rbac.yaml
   - deployment-kube-state-metrics.yaml
+  - hpa-kube-state-metrics.yaml
   - daemonset-node-exporter.yaml
   - configmap-prometheus.yaml
   - configmap-alertmanager.yaml
   - pvc-prometheus.yaml
   - deployment-prometheus.yaml
   - deployment-alertmanager.yaml
+  - hpa-alertmanager.yaml
   - configmap-grafana-datasources.yaml
   - configmap-grafana-dashboard-provider.yaml
   - pvc-grafana.yaml
@@ -28,3 +30,4 @@ configMapGenerator:
       - dashboards/ml-serving-tone.json
       - dashboards/infra-health.json
       - dashboards/data-pipeline-quality.json
+      - dashboards/platform-operations.json
