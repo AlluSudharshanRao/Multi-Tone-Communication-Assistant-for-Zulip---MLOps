@@ -19,7 +19,10 @@ lora:
     - v_proj
 
 data:
+  dataset_manifest_path: ${DATASET_MANIFEST_PATH}
+  dataset_manifest_role: generator_rewrites
   train_path: data/generator_train.jsonl
+  eval_path: ${GENERATOR_EVAL_PATH}
   val_fraction: 0.15
   max_samples: null
   random_seed: 42

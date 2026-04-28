@@ -23,6 +23,8 @@ COPY requirements-llm.txt .
 RUN pip install -r requirements-llm.txt
 
 COPY train_llm.py .
+COPY dataset_contract.py .
+COPY prepare_training_data.py .
 COPY configs/ /app/configs/
 COPY data/ /app/data/
 

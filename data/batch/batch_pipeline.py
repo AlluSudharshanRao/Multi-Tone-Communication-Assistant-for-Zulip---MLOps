@@ -74,6 +74,9 @@ def upload(df, name):
     key = f"batch/{batch_ver}/{name}.parquet"
     s3.put_object(Bucket=BUCKET, Key=key, Body=buf.getvalue())
     print(f"  Uploaded {key} ({len(df)} rows)")
+    latest_key = f"batch/latest/{name}.parquet"
+    s3.put_object(Bucket=BUCKET, Key=latest_key, Body=buf.getvalue())
+    print(f"  Updated {latest_key} ({len(df)} rows)")
 
 upload(df_train, "train")
 upload(df_test,  "test")
@@ -89,6 +92,9 @@ manifest = {
 }
 s3.put_object(Bucket=BUCKET,
               Key=f"batch/{batch_ver}/manifest.json",
+              Body=json.dumps(manifest, indent=2))
+s3.put_object(Bucket=BUCKET,
+              Key="batch/latest/manifest.json",
               Body=json.dumps(manifest, indent=2))
 print("Batch pipeline complete!")
 print(json.dumps(manifest, indent=2))

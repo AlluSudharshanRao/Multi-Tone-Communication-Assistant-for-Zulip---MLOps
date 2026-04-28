@@ -7,6 +7,8 @@
 # GPU strongly recommended for reasonable wall-clock time.
 # Current manifest runs CPU-only (KVM@TACC node has no GPU).
 # GPU path: uncomment nvidia.com/gpu block + runtimeClassName.
+# Pulls the latest batch manifest plus optional feedback artifacts, materializes
+# a training bundle, then fine-tunes from that manifest-backed dataset.
 #
 # Apply: kubectl apply -f k8s/training/generator-training-job.yaml
 # Monitor: kubectl logs -n ml-training -l job-name=generator-training -f
@@ -32,6 +34,36 @@ spec:
     spec:
       restartPolicy: OnFailure
       # runtimeClassName: nvidia   # Uncomment for GPU node
+      initContainers:
+        - name: sync-latest-batch
+          image: minio/mc:latest
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              mkdir -p /data/batch/latest /data/feedback
+              mc alias set minio http://$MINIO_ENDPOINT $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
+              mc cp --recursive minio/$MINIO_BUCKET/batch/latest/ /data/batch/latest/
+              mc cp --recursive minio/$MINIO_BUCKET/feedback/ /data/feedback/ || true
+          env:
+            - name: MINIO_ENDPOINT
+              value: "minio.ml-platform.svc.cluster.local:9000"
+            - name: MINIO_BUCKET
+              value: "zulip-rewriter"
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-password
+          volumeMounts:
+            - name: training-data
+              mountPath: /data
       containers:
         - name: generator-training
           image: ghcr.io/allusudharshanrao/mlops-training-generator:latest
@@ -61,6 +93,20 @@ spec:
               value: "3"
             - name: BATCH_SIZE
               value: "8"
+            - name: DATASET_MANIFEST_PATH
+              value: "/output/training_data/dataset_manifest.json"
+            - name: GENERATOR_EVAL_PATH
+              value: "/output/training_data/generator_eval.jsonl"
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              python /app/prepare_training_data.py \
+                --batch-root /data/batch/latest \
+                --feedback-dir /data/feedback \
+                --output-dir /output/training_data
+              python /app/train_llm.py --config /app/configs/llm_generator_small.yaml
           volumeMounts:
             - name: training-data
               mountPath: /data

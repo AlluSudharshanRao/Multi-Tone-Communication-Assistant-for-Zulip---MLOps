@@ -29,6 +29,7 @@ import csv
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 import tempfile
@@ -40,6 +41,12 @@ import mlflow
 import numpy as np
 import optuna
 import yaml
+from dataset_contract import (
+    load_dataset_manifest,
+    manifest_lineage,
+    resolve_manifest_artifact,
+    resolve_path,
+)
 from sklearn.datasets import fetch_20newsgroups
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
@@ -55,8 +62,17 @@ from sklearn.ensemble import RandomForestClassifier
 
 
 def _load_config(path: Path) -> dict[str, Any]:
+    def expand(value: Any) -> Any:
+        if isinstance(value, str):
+            return re.sub(r"\$\{([^}]+)\}", lambda m: os.environ.get(m.group(1), ""), value)
+        if isinstance(value, list):
+            return [expand(v) for v in value]
+        if isinstance(value, dict):
+            return {k: expand(v) for k, v in value.items()}
+        return value
+
     with path.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        return expand(yaml.safe_load(f))
 
 
 def _git_sha() -> str:
@@ -141,12 +157,44 @@ def _load_twenty_newsgroups(cfg: dict[str, Any]) -> tuple[list[str], np.ndarray,
     return texts, y, list(bunch.target_names)
 
 
-def _load_tone_csv(cfg: dict[str, Any]) -> tuple[list[str], np.ndarray, list[str]]:
+def _load_tone_csv(cfg: dict[str, Any]) -> tuple[list[str], np.ndarray, list[str], dict[str, Any]]:
     d = cfg["data"]
     label_classes = list(d["label_classes"])
     label_to_idx = {name: i for i, name in enumerate(label_classes)}
-    raw_path = Path(d["csv_path"])
-    path = raw_path if raw_path.is_absolute() else Path(__file__).resolve().parent / raw_path
+    base_dir = Path(__file__).resolve().parent
+    manifest_bundle = load_dataset_manifest(base_dir, d)
+    artifact = resolve_manifest_artifact(
+        manifest_bundle,
+        artifact_name=str(d.get("dataset_manifest_role", "classifier_tone_csv")),
+        required_fields=("train_path",),
+    )
+    if artifact is not None:
+        path = resolve_path(base_dir, str(artifact["train_path"]))
+        manifest_labels = artifact.get("label_classes")
+        if manifest_labels and list(manifest_labels) != label_classes:
+            raise ValueError(
+                "dataset manifest label_classes do not match config data.label_classes"
+            )
+        lineage = {
+            "dataset_kind": "tone_csv_manifest",
+            "csv_path": str(path),
+            "label_classes": label_classes,
+            **manifest_lineage(
+                manifest_bundle,
+                str(d.get("dataset_manifest_role", "classifier_tone_csv")),
+            ),
+        }
+    else:
+        path = resolve_path(base_dir, str(d["csv_path"]))
+        lineage = {
+            "dataset_kind": "tone_csv",
+            "csv_path": str(path),
+            "label_classes": label_classes,
+            "lineage_note": (
+                "Replace tone_seed.csv with your team's versioned, labeled export (object store) "
+                "and document collector, time range, and labeling process for the course data requirement."
+            ),
+        }
     texts: list[str] = []
     ys: list[int] = []
     with path.open(newline="", encoding="utf-8") as f:
@@ -164,40 +212,23 @@ def _load_tone_csv(cfg: dict[str, Any]) -> tuple[list[str], np.ndarray, list[str
             ys.append(label_to_idx[tone])
     if len(texts) < 6:
         raise ValueError("tone_csv needs more rows for a stable train/val/test split")
-    return texts, np.asarray(ys, dtype=np.int64), label_classes
+    return texts, np.asarray(ys, dtype=np.int64), label_classes, lineage
 
 
-def _load_dataset(cfg: dict[str, Any]) -> tuple[list[str], np.ndarray, list[str]]:
+def _load_dataset(cfg: dict[str, Any]) -> tuple[list[str], np.ndarray, list[str], dict[str, Any]]:
     kind = cfg["data"].get("dataset", "tone_csv")
     if kind == "twenty_newsgroups":
-        return _load_twenty_newsgroups(cfg)
+        texts, y, class_names = _load_twenty_newsgroups(cfg)
+        return texts, y, class_names, {
+            "dataset_kind": "twenty_newsgroups",
+            "reference": "Lang, K. (1995). NewsWeeder: Learning to filter netnews. CMU-CS-96-118.",
+            "sklearn_loader": "sklearn.datasets.fetch_20newsgroups",
+            "categories_used": cfg["data"].get("categories"),
+            "preprocessing": "headers/footers/quotes removed by sklearn loader",
+        }
     if kind == "tone_csv":
         return _load_tone_csv(cfg)
     raise ValueError(f"Unknown data.dataset: {kind}")
-
-
-def _lineage_record(cfg: dict[str, Any], class_names: list[str]) -> dict[str, Any]:
-    d = cfg["data"]
-    kind = d.get("dataset", "tone_csv")
-    if kind == "tone_csv":
-        raw_path = Path(d["csv_path"])
-        path = raw_path if raw_path.is_absolute() else Path(__file__).resolve().parent / raw_path
-        return {
-            "dataset_kind": "tone_csv",
-            "csv_path": str(path),
-            "label_classes": class_names,
-            "lineage_note": (
-                "Replace tone_seed.csv with your team's versioned, labeled export (object store) "
-                "and document collector, time range, and labeling process for the course data requirement."
-            ),
-        }
-    return {
-        "dataset_kind": "twenty_newsgroups",
-        "reference": "Lang, K. (1995). NewsWeeder: Learning to filter netnews. CMU-CS-96-118.",
-        "sklearn_loader": "sklearn.datasets.fetch_20newsgroups",
-        "categories_used": d.get("categories"),
-        "preprocessing": "headers/footers/quotes removed by sklearn loader",
-    }
 
 
 def _evaluate(
@@ -343,6 +374,7 @@ def _train_distilbert(
     y_val: np.ndarray,
     y_test: np.ndarray,
     class_names: list[str],
+    dataset_lineage: dict[str, Any],
     env_info: dict[str, Any],
     git_sha: str,
     config_path: Path | None,
@@ -442,11 +474,16 @@ def _train_distilbert(
         mlflow.set_tag("dataset", d.get("dataset", "tone_csv"))
         mlflow.set_tag("label_classes", ",".join(class_names))
         mlflow.set_tag("features", "distilbert_hf")
-        if d.get("dataset", "tone_csv") == "tone_csv":
+        if dataset_lineage["dataset_kind"].startswith("tone_csv"):
             mlflow.set_tag(
                 "dataset_lineage",
-                "Labeled CSV (text,tone); document production source in dataset_lineage.json",
+                "Labeled CSV (text,tone); source details stored in dataset_lineage.json",
             )
+            if dataset_lineage.get("dataset_manifest_version"):
+                mlflow.set_tag(
+                    "dataset_manifest_version",
+                    str(dataset_lineage["dataset_manifest_version"]),
+                )
         else:
             mlflow.set_tag("dataset_lineage", "Ken Lang CMU NewsWeeder; sklearn.datasets.fetch_20newsgroups")
         mlflow.set_tag("code_version_git_sha", git_sha)
@@ -513,10 +550,7 @@ def _train_distilbert(
         )
 
         lineage_path = Path("dataset_lineage.json")
-        lineage_path.write_text(
-            json.dumps(_lineage_record(cfg, class_names), indent=2),
-            encoding="utf-8",
-        )
+        lineage_path.write_text(json.dumps(dataset_lineage, indent=2), encoding="utf-8")
         mlflow.log_artifact(str(lineage_path))
         lineage_path.unlink(missing_ok=True)
 
@@ -528,7 +562,7 @@ def train(cfg: dict[str, Any], config_path: Path | None = None) -> None:
     d = cfg["data"]
     seed = int(d["random_seed"])
 
-    texts, y, class_names = _load_dataset(cfg)
+    texts, y, class_names, dataset_lineage = _load_dataset(cfg)
     X_train, X_test, y_train, y_test = train_test_split(
         texts,
         y,
@@ -558,6 +592,7 @@ def train(cfg: dict[str, Any], config_path: Path | None = None) -> None:
             y_val,
             y_test,
             class_names,
+            dataset_lineage,
             env_info,
             git_sha,
             config_path,
@@ -571,11 +606,16 @@ def train(cfg: dict[str, Any], config_path: Path | None = None) -> None:
         mlflow.set_tag("hyperparameter_tuning", tuning)
         mlflow.set_tag("dataset", d.get("dataset", "tone_csv"))
         mlflow.set_tag("label_classes", ",".join(class_names))
-        if d.get("dataset", "tone_csv") == "tone_csv":
+        if dataset_lineage["dataset_kind"].startswith("tone_csv"):
             mlflow.set_tag(
                 "dataset_lineage",
-                "Labeled CSV (text,tone); document production source in dataset_lineage.json",
+                "Labeled CSV (text,tone); source details stored in dataset_lineage.json",
             )
+            if dataset_lineage.get("dataset_manifest_version"):
+                mlflow.set_tag(
+                    "dataset_manifest_version",
+                    str(dataset_lineage["dataset_manifest_version"]),
+                )
         else:
             mlflow.set_tag("dataset_lineage", "Ken Lang CMU NewsWeeder; sklearn.datasets.fetch_20newsgroups")
         mlflow.set_tag("code_version_git_sha", git_sha)
@@ -666,10 +706,7 @@ def train(cfg: dict[str, Any], config_path: Path | None = None) -> None:
             mlflow.log_artifacts(model_dir, artifact_path="model")
 
         lineage_path = Path("dataset_lineage.json")
-        lineage_path.write_text(
-            json.dumps(_lineage_record(cfg, class_names), indent=2),
-            encoding="utf-8",
-        )
+        lineage_path.write_text(json.dumps(dataset_lineage, indent=2), encoding="utf-8")
         mlflow.log_artifact(str(lineage_path))
         lineage_path.unlink(missing_ok=True)
 

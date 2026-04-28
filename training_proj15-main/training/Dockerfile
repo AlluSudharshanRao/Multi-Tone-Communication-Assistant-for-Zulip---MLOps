@@ -21,6 +21,8 @@ RUN pip install --upgrade pip \
     && pip install -r requirements.txt
 
 COPY train.py .
+COPY dataset_contract.py .
+COPY prepare_training_data.py .
 COPY configs/ /app/configs/
 COPY data/ /app/data/
 

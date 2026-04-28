@@ -5,6 +5,8 @@ description: "DistilBERT fine-tuned with Hugging Face Trainer; TF-IDF block belo
 
 data:
   dataset: tone_csv
+  dataset_manifest_path: ${DATASET_MANIFEST_PATH}
+  dataset_manifest_role: classifier_tone_csv
   csv_path: data/tone_seed.csv
   label_classes:
     - formal

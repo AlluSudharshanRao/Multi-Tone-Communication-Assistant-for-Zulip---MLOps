@@ -7,6 +7,8 @@
 # Triggered manually or by CI/CD on new data or drift detection.
 # Logs metrics and model artefacts to MLflow (ml-platform namespace).
 # Saves model weights under MinIO bucket zulip-rewriter (aligned with data stack; prefix e.g. classifier/).
+# Pulls the latest batch manifest plus optional feedback artifacts, materializes
+# a training bundle, then trains from that manifest-backed dataset.
 #
 # Apply: kubectl apply -f k8s/training/classifier-training-job.yaml
 # Monitor: kubectl logs -n ml-training -l job-name=classifier-training -f
@@ -33,6 +35,36 @@ spec:
         model: distilbert
     spec:
       restartPolicy: OnFailure
+      initContainers:
+        - name: sync-latest-batch
+          image: minio/mc:latest
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              mkdir -p /data/batch/latest /data/feedback
+              mc alias set minio http://$MINIO_ENDPOINT $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
+              mc cp --recursive minio/$MINIO_BUCKET/batch/latest/ /data/batch/latest/
+              mc cp --recursive minio/$MINIO_BUCKET/feedback/ /data/feedback/ || true
+          env:
+            - name: MINIO_ENDPOINT
+              value: "minio.ml-platform.svc.cluster.local:9000"
+            - name: MINIO_BUCKET
+              value: "zulip-rewriter"
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-password
+          volumeMounts:
+            - name: training-data
+              mountPath: /data
       containers:
         - name: classifier-training
           # Replace with actual image after Data/Training team publishes build.
@@ -61,6 +93,8 @@ spec:
               value: "/data"
             - name: OUTPUT_PATH
               value: "/output"
+            - name: DATASET_MANIFEST_PATH
+              value: "/output/training_data/dataset_manifest.json"
             # Training hyperparameters — override via env or configmap as needed.
             - name: NUM_EPOCHS
               value: "5"
@@ -70,6 +104,16 @@ spec:
               value: "2e-5"
             - name: F1_THRESHOLD
               value: "0.85"
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              python /app/prepare_training_data.py \
+                --batch-root /data/batch/latest \
+                --feedback-dir /data/feedback \
+                --output-dir /output/training_data
+              python /app/train.py --config /app/configs/candidate_tone_distilbert.yaml
           volumeMounts:
             - name: training-data
               mountPath: /data
@@ -97,32 +141,5 @@ spec:
       volumes:
         - name: training-data
           emptyDir: {}
-          # TODO: replace with PVC or init-container that syncs datasets from MinIO.
-          # Example init-container:
-          # initContainers:
-          #   - name: pull-data
-          #     image: minio/mc:latest
-          #     command:
-          #       - sh
-          #       - -c
-          #       - |
-          #         mc alias set minio http://$MINIO_ENDPOINT $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
-          #         mc cp --recursive minio/zulip-rewriter/datasets/ /data/
-          #     env:
-          #       - name: MINIO_ENDPOINT
-          #         value: "minio.ml-platform.svc.cluster.local:9000"
-          #       - name: MINIO_ROOT_USER
-          #         valueFrom:
-          #           secretKeyRef:
-          #             name: minio-root
-          #             key: root-user
-          #       - name: MINIO_ROOT_PASSWORD
-          #         valueFrom:
-          #           secretKeyRef:
-          #             name: minio-root
-          #             key: root-password
-          #     volumeMounts:
-          #       - name: training-data
-          #         mountPath: /data
         - name: output
           emptyDir: {}

@@ -17,12 +17,28 @@ docker run --rm --network host -e MLFLOW_TRACKING_URI llm-train:proj15 --config 
 
 Compose (Linux / Chameleon): `docker compose -f training/docker-compose.yml build` then `run` services `tone-train` / `llm-train`.
 
+## Latest-batch retraining
+
+The training stack can now consume a manifest-backed dataset bundle instead of relying only on local seed files.
+
+- `training/prepare_training_data.py` turns the latest batch manifest plus optional feedback artifacts into:
+  - `classifier_tone.csv`
+  - `generator_train.jsonl`
+  - `generator_eval.jsonl`
+  - `dataset_manifest.json`
+- `training/train.py` and `training/train_llm.py` read `DATASET_MANIFEST_PATH` from the environment when set.
+- The Kubernetes training jobs are wired to pull `batch/latest/` and `feedback/` from MinIO before training.
+
+This improves the retraining story, but it does not magically make the live learning signal strong: if feedback data is sparse, seed examples still dominate the generator dataset and the manifest records that limitation explicitly.
+
 ## Layout
 
 | Path | Content |
 |------|---------|
 | `training/train.py` | Classifier: YAML config, sklearn + optional DistilBERT, Optuna, MLflow |
 | `training/train_llm.py` | Generator: LoRA SFT, MLflow |
+| `training/prepare_training_data.py` | Build manifest-backed classifier/generator datasets from latest batch + feedback |
+| `training/dataset_contract.py` | Shared dataset manifest resolver |
 | `training/configs/*.yaml` | Training configurations |
 | `training/Dockerfile` | Classifier image |
 | `training/Dockerfile.llm` | LLM image |
