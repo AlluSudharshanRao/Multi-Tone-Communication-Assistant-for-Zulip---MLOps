@@ -24,6 +24,8 @@ spec:
         prometheus.io/port: "8001"
         prometheus.io/path: "/metrics"
     spec:
+      imagePullSecrets:
+        - name: ghcr-pull
       containers:
         - name: classifier-onnx
           image: ghcr.io/allusudharshanrao/mlops-serving-classifier:latest
@@ -42,6 +44,22 @@ spec:
               value: "true"
             - name: MLFLOW_TRACKING_URI
               value: "http://mlflow.ml-platform.svc.cluster.local:5000"
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-user
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-password
+            - name: MLFLOW_S3_ENDPOINT_URL
+              value: "http://minio.ml-platform.svc.cluster.local:9000"
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"
+            - name: AWS_S3_FORCE_PATH_STYLE
+              value: "true"
           volumeMounts:
             - name: model-cache
               mountPath: /app/model_cache
@@ -60,11 +78,11 @@ spec:
             periodSeconds: 20
           resources:
             requests:
-              cpu: "250m"
-              memory: "512Mi"
+              cpu: "200m"
+              memory: "384Mi"
             limits:
               cpu: "1"
-              memory: "1Gi"
+              memory: "768Mi"
       volumes:
         - name: model-cache
           emptyDir: {}

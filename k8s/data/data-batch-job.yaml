@@ -20,10 +20,21 @@ spec:
         role: data
     spec:
       restartPolicy: OnFailure
+      volumes:
+        - name: batch-code
+          configMap:
+            name: data-batch-code
       containers:
         - name: batch
-          image: ghcr.io/allusudharshanrao/mlops-data-batch:latest
+          image: python:3.11-slim
           imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              python -m pip install --no-cache-dir -r /app/requirements.txt
+              python /app/batch_pipeline.py
           env:
             - name: MINIO_BUCKET
               value: "zulip-rewriter"
@@ -43,8 +54,11 @@ spec:
               value: "v1"
           resources:
             requests:
-              cpu: 250m
-              memory: 512Mi
+              cpu: 200m
+              memory: 384Mi
             limits:
               cpu: "2"
               memory: 4Gi
+          volumeMounts:
+            - name: batch-code
+              mountPath: /app

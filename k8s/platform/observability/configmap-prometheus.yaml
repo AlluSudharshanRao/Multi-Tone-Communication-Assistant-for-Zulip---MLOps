@@ -1,4 +1,5 @@
 # Scrape self + any pod with prometheus.io/scrape=true (e.g. inference pods in ml-serving).
+# Alert rules align with serving/alerts/serving.rules.yml; Alertmanager in this namespace.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -12,6 +13,15 @@ data:
     global:
       scrape_interval: 15s
       evaluation_interval: 15s
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+                - alertmanager:9093
+
+    rule_files:
+      - /etc/prometheus/serving.rules.yml
 
     scrape_configs:
       - job_name: prometheus
@@ -42,3 +52,291 @@ data:
           - source_labels: [__meta_kubernetes_pod_name]
             action: replace
             target_label: kubernetes_pod_name
+
+  serving.rules.yml: |
+    groups:
+      - name: platform_watchdog
+        interval: 30s
+        rules:
+          - alert: Watchdog
+            expr: vector(1)
+            for: 1m
+            labels:
+              severity: none
+              component: platform
+            annotations:
+              summary: "Watchdog"
+              description: "Synthetic always-firing alert to verify the alert pipeline."
+
+      - name: serving_tone_services
+        interval: 30s
+        rules:
+          - alert: ServingClassifierHighErrorRatio
+            expr: |
+              sum(rate(classifier_requests_total{status="error"}[5m]))
+              / clamp_min(sum(rate(classifier_requests_total[5m])), 0.001)
+              > 0.05
+            for: 10m
+            labels:
+              severity: warning
+              component: serving
+            annotations:
+              summary: "Classifier error ratio > 5% (10m)"
+              description: "Investigate classifier logs and recent deploys."
+
+          - alert: ServingClassifierLatencyP95High
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum(rate(classifier_latency_seconds_bucket[5m])) by (le)
+              ) > 0.15
+            for: 15m
+            labels:
+              severity: warning
+              component: serving
+            annotations:
+              summary: "Classifier p95 latency > 150ms (15m)"
+              description: "Check load, CPU limits, and model backend (pytorch/onnx)."
+
+          - alert: ServingGeneratorHighErrorRatio
+            expr: |
+              sum(rate(generator_requests_total{status="error"}[5m]))
+              / clamp_min(sum(rate(generator_requests_total[5m])), 0.001)
+              > 0.05
+            for: 10m
+            labels:
+              severity: warning
+              component: serving
+            annotations:
+              summary: "Generator error ratio > 5% (10m)"
+              description: "Investigate generator and upstream classifier URL."
+
+          - alert: ServingGeneratorLatencyP95High
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum(rate(generator_latency_seconds_bucket[5m])) by (le)
+              ) > 0.8
+            for: 15m
+            labels:
+              severity: warning
+              component: serving
+            annotations:
+              summary: "Generator p95 latency > 800ms (15m)"
+              description: "Dummy CPU baseline may exceed SLO; GPU path or rollback."
+
+          - alert: ServingGeneratorFallbackRatioHigh
+            expr: |
+              sum(rate(generator_variant_source_total{source="fallback"}[15m]))
+              / clamp_min(sum(rate(generator_variant_source_total[15m])), 0.001)
+              > 0.25
+            for: 15m
+            labels:
+              severity: warning
+              component: serving
+            annotations:
+              summary: "Generator fallback ratio > 25% (15m)"
+              description: "UX quality is relying too heavily on rescue logic; inspect the promoted generator artifact before further rollout."
+
+          - alert: ServingGeneratorFeedbackApprovalLow
+            expr: |
+              (
+                clamp_min(sum(increase(bridge_feedback_total{user_action=~"thumbs_up|selected"}[24h])) or vector(0), 0)
+                /
+                clamp_min(sum(increase(bridge_feedback_total[24h])) or vector(0), 1)
+              ) < 0.65
+              and sum(increase(bridge_feedback_total[24h])) > 20
+            for: 30m
+            labels:
+              severity: warning
+              component: serving
+            annotations:
+              summary: "Generator feedback approval < 65% (24h)"
+              description: "Promotion confidence is low; compare canary and prod quality before advancing or consider rollback."
+
+          - alert: ServingGeneratorQueueWaitP95High
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum(rate(generator_queue_wait_seconds_bucket[5m])) by (le)
+              ) > 0.15
+            for: 10m
+            labels:
+              severity: warning
+              component: serving
+            annotations:
+              summary: "Generator queue wait p95 > 150ms (10m)"
+              description: "The generator is becoming the bottleneck under load; scale or throttle before user-facing latency deteriorates."
+
+      - name: platform_observability
+        interval: 30s
+        rules:
+          - alert: PlatformNodeNotReady
+            expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+            for: 2m
+            labels:
+              severity: critical
+              component: platform
+            annotations:
+              summary: "Kubernetes node is not ready"
+              description: "At least one cluster node has been non-ready for more than 2 minutes."
+
+          - alert: PlatformDeploymentUnavailableReplicas
+            expr: sum(kube_deployment_status_replicas_unavailable{namespace=~"ml-platform|monitoring|zulip|ml-serving"}) > 0
+            for: 2m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "Unavailable replicas detected"
+              description: "One or more tracked deployments have unavailable replicas."
+
+          - alert: PlatformPodRestartsHigh
+            expr: sum(increase(kube_pod_container_status_restarts_total{namespace=~"ml-platform|monitoring|zulip|ml-serving"}[15m])) > 3
+            for: 5m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "Pod restart rate is elevated"
+              description: "Tracked namespaces have seen more than 3 container restarts in 15 minutes."
+
+          - alert: PlatformNodeCpuHigh
+            expr: 100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 85
+            for: 5m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "Node CPU usage is high"
+              description: "A node has sustained CPU usage above 85% for 5 minutes."
+
+          - alert: PlatformNodeMemoryHigh
+            expr: 100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 90
+            for: 5m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "Node memory usage is high"
+              description: "A node has sustained memory usage above 90% for 5 minutes."
+
+          - alert: PlatformFilesystemUsageHigh
+            expr: |
+              100 * (
+                1 - (
+                  node_filesystem_avail_bytes{fstype!~"tmpfs|fuse.lxcfs",mountpoint=~"/|/mnt/block"}
+                  /
+                  node_filesystem_size_bytes{fstype!~"tmpfs|fuse.lxcfs",mountpoint=~"/|/mnt/block"}
+                )
+              ) > 85
+            for: 10m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "Node filesystem usage is high"
+              description: "A monitored root or block volume filesystem has been above 85% usage for 10 minutes."
+
+          - alert: PlatformFilesystemInodesHigh
+            expr: |
+              100 * (
+                1 - (
+                  node_filesystem_files_free{fstype!~"tmpfs|fuse.lxcfs",mountpoint=~"/|/mnt/block"}
+                  /
+                  node_filesystem_files{fstype!~"tmpfs|fuse.lxcfs",mountpoint=~"/|/mnt/block"}
+                )
+              ) > 90
+            for: 10m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "Node inode usage is high"
+              description: "A monitored root or block volume filesystem has been above 90% inode usage for 10 minutes."
+
+          - alert: PlatformPodsCrashLooping
+            expr: |
+              sum(
+                kube_pod_container_status_waiting_reason{
+                  namespace=~"ml-platform|monitoring|zulip|ml-serving|ml-data|ml-training|kube-system",
+                  reason="CrashLoopBackOff"
+                }
+              ) > 0
+            for: 5m
+            labels:
+              severity: critical
+              component: platform
+            annotations:
+              summary: "CrashLoopBackOff detected"
+              description: "At least one tracked container has been stuck in CrashLoopBackOff for 5 minutes."
+
+          - alert: PlatformPodsImagePullFailing
+            expr: |
+              sum(
+                kube_pod_container_status_waiting_reason{
+                  namespace=~"ml-platform|monitoring|zulip|ml-serving|ml-data|ml-training|kube-system",
+                  reason=~"ImagePullBackOff|ErrImagePull"
+                }
+              ) > 0
+            for: 5m
+            labels:
+              severity: critical
+              component: platform
+            annotations:
+              summary: "Image pull failures detected"
+              description: "At least one tracked container cannot pull its image."
+
+          - alert: PlatformPodsOOMKilled
+            expr: |
+              sum(
+                increase(
+                  kube_pod_container_status_last_terminated_reason{
+                    namespace=~"ml-platform|monitoring|zulip|ml-serving|ml-data|ml-training|kube-system",
+                    reason="OOMKilled"
+                  }[15m]
+                )
+              ) > 0
+            for: 5m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "OOMKilled containers detected"
+              description: "At least one tracked container was OOMKilled in the last 15 minutes."
+
+          - alert: PlatformNonRunningPodsDetected
+            expr: |
+              sum(
+                kube_pod_status_phase{
+                  namespace=~"ml-platform|monitoring|zulip|ml-serving|ml-data|ml-training|kube-system",
+                  phase=~"Pending|Failed|Unknown"
+                }
+              ) > 0
+            for: 10m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "Tracked namespaces have non-running pods"
+              description: "Pending, failed, or unknown pods have been present for more than 10 minutes."
+
+          - alert: PlatformPrometheusTargetsDown
+            expr: sum(up{job=~"prometheus|kubernetes-pods"} == 0) > 0
+            for: 10m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "Prometheus has scrape targets down"
+              description: "At least one Prometheus scrape target has been down for 10 minutes."
+
+          - alert: PrometheusConfigLastReloadFailed
+            expr: prometheus_config_last_reload_successful != 1
+            for: 5m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "Prometheus configuration reload failed"
+              description: "Inspect Prometheus logs and the prometheus-config ConfigMap."

@@ -115,7 +115,6 @@ def _build_supervised_text(
     eos = tokenizer.eos_token or "</s>"
     return f"<<SYS>>\n{system}\n<</SYS>>\n\n{user_content}\n{assistant_content}{eos}"
 
-
 def _load_generator_examples(cfg: dict[str, Any]) -> tuple[list[dict[str, str]], list[dict[str, str]] | None, dict[str, Any]]:
     base = Path(__file__).resolve().parent
     d = cfg["data"]

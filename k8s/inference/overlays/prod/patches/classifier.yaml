@@ -11,5 +11,23 @@ spec:
           env:
             - name: DUMMY_MODE
               value: "false"
+            - name: CLASSIFIER_MODEL_URI
+              value: "models:/tone-classifier@prod"
             - name: DEPLOYMENT_TIER
               value: "production"
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 120
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 420
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6

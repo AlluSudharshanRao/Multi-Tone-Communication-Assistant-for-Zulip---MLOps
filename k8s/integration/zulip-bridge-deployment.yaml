@@ -17,6 +17,10 @@ spec:
       app: zulip-bridge
   template:
     metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8090"
+        prometheus.io/path: "/metrics"
       labels:
         app: zulip-bridge
         role: integration
@@ -30,6 +34,8 @@ spec:
         runAsUser: 65534
         runAsGroup: 65534
         fsGroup: 65534
+      imagePullSecrets:
+        - name: ghcr-pull
       containers:
         - name: zulip-bridge
           image: ghcr.io/allusudharshanrao/mlops-zulip-bridge:latest
@@ -52,6 +58,23 @@ spec:
                   name: zulip-bridge
                   key: webhook-secret
                   optional: true
+            # MinIO — required for POST /feedback persistence.
+            # minio-root Secret is created by deploy_platform Ansible playbook
+            # (random password; never hardcoded in manifests).
+            - name: MINIO_ENDPOINT
+              value: "http://minio.ml-platform.svc.cluster.local:9000"
+            - name: MINIO_BUCKET
+              value: "zulip-rewriter"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-user
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-password
           readinessProbe:
             httpGet:
               path: /health

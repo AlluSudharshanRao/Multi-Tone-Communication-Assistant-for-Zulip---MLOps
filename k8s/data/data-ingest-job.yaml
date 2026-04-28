@@ -20,10 +20,21 @@ spec:
         role: data
     spec:
       restartPolicy: OnFailure
+      volumes:
+        - name: ingest-code
+          configMap:
+            name: data-ingest-code
       containers:
         - name: ingest
-          image: ghcr.io/allusudharshanrao/mlops-data-ingest:latest
+          image: python:3.11-slim
           imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              python -m pip install --no-cache-dir -r /app/requirements.txt
+              python /app/ingest.py
           env:
             - name: MINIO_BUCKET
               value: "zulip-rewriter"
@@ -41,10 +52,15 @@ spec:
                   key: root-password
             - name: DATA_VERSION
               value: "v1"
+            - name: GYAFC_SOURCE_URL
+              value: "https://drive.usercontent.google.com/download?id=1j7JZSfnXlBMrZuuvc4KV1uoVOtS71pTo&export=download&confirm=t"
           resources:
             requests:
-              cpu: 250m
-              memory: 512Mi
+              cpu: 200m
+              memory: 384Mi
             limits:
               cpu: "1"
               memory: 2Gi
+          volumeMounts:
+            - name: ingest-code
+              mountPath: /app

@@ -23,10 +23,8 @@ metadata:
     role: training
     model: distilbert
 spec:
-  # Allow 1 retry on transient failure (e.g. MinIO connectivity at startup).
-  backoffLimit: 1
-  # Clean up completed pod after 1 hour to free node resources.
-  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 21600
   template:
     metadata:
       labels:
@@ -36,45 +34,57 @@ spec:
     spec:
       restartPolicy: OnFailure
       initContainers:
-        - name: sync-latest-batch
-          image: minio/mc:latest
-          command:
-            - sh
-            - -lc
-            - |
-              set -eu
-              mkdir -p /data/batch/latest /data/feedback
-              mc alias set minio http://$MINIO_ENDPOINT $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
-              mc cp --recursive minio/$MINIO_BUCKET/batch/latest/ /data/batch/latest/
-              mc cp --recursive minio/$MINIO_BUCKET/feedback/ /data/feedback/ || true
+        - name: pull-datasets
+          image: minio/mc:RELEASE.2025-02-21T16-00-46Z
+          imagePullPolicy: IfNotPresent
           env:
             - name: MINIO_ENDPOINT
-              value: "minio.ml-platform.svc.cluster.local:9000"
+              value: "http://minio.ml-platform.svc.cluster.local:9000"
             - name: MINIO_BUCKET
               value: "zulip-rewriter"
-            - name: MINIO_ROOT_USER
+            - name: MINIO_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: minio-root
                   key: root-user
-            - name: MINIO_ROOT_PASSWORD
+            - name: MINIO_SECRET_KEY
               valueFrom:
                 secretKeyRef:
                   name: minio-root
                   key: root-password
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              TRIES=0
+              MAX=24
+              until mc alias set platform "$MINIO_ENDPOINT" "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY" >/dev/null 2>&1; do
+                TRIES=$((TRIES+1))
+                if [ "$TRIES" -ge "$MAX" ]; then
+                  echo "ERROR: MinIO not reachable after $((MAX*5))s"
+                  exit 1
+                fi
+                echo "MinIO not ready ($TRIES/$MAX), sleeping 5s..."
+                sleep 5
+              done
+              mc ls "platform/$MINIO_BUCKET" >/dev/null
+              mkdir -p /data/raw /data/batch/latest /data/feedback
+              mc cp --recursive "platform/$MINIO_BUCKET/raw/" /data/raw/ || true
+              mc cp --recursive "platform/$MINIO_BUCKET/batch/" /data/batch/ || true
+              mc cp --recursive "platform/$MINIO_BUCKET/feedback/" /data/feedback/ || true
           volumeMounts:
             - name: training-data
               mountPath: /data
       containers:
         - name: classifier-training
-          # Replace with actual image after Data/Training team publishes build.
           image: ghcr.io/allusudharshanrao/mlops-training-classifier:latest
           imagePullPolicy: IfNotPresent
           env:
             - name: MLFLOW_TRACKING_URI
               value: "http://mlflow.ml-platform.svc.cluster.local:5000"
             - name: MLFLOW_EXPERIMENT_NAME
-              value: "tone-classifier"
+              value: "teamchat_tone_clf"
             - name: MINIO_ENDPOINT
               value: "minio.ml-platform.svc.cluster.local:9000"
             - name: MINIO_BUCKET
@@ -89,6 +99,22 @@ spec:
                 secretKeyRef:
                   name: minio-root
                   key: root-password
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-user
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root
+                  key: root-password
+            - name: MLFLOW_S3_ENDPOINT_URL
+              value: "http://minio.ml-platform.svc.cluster.local:9000"
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"
+            - name: AWS_S3_FORCE_PATH_STYLE
+              value: "true"
             - name: DATA_PATH
               value: "/data"
             - name: OUTPUT_PATH
@@ -109,6 +135,7 @@ spec:
             - -lc
             - |
               set -eu
+              python -c "import boto3" >/dev/null 2>&1 || python -m pip install --no-cache-dir boto3
               python /app/prepare_training_data.py \
                 --batch-root /data/batch/latest \
                 --feedback-dir /data/feedback \
@@ -120,24 +147,12 @@ spec:
             - name: output
               mountPath: /output
           resources:
-            # CPU training for DistilBERT at class scale.
-            # Increase CPU/memory for larger datasets; GPU not required for fine-tuning
-            # at this scale but can be added via the commented block below.
             requests:
-              cpu: "2"
-              memory: "4Gi"
+              cpu: "1"
+              memory: "2Gi"
             limits:
               cpu: "4"
               memory: "8Gi"
-            # --- GPU block (uncomment for Blazar GPU reservation) ---
-            # requests:
-            #   cpu: "2"
-            #   memory: "8Gi"
-            #   nvidia.com/gpu: "1"
-            # limits:
-            #   cpu: "4"
-            #   memory: "16Gi"
-            #   nvidia.com/gpu: "1"
       volumes:
         - name: training-data
           emptyDir: {}

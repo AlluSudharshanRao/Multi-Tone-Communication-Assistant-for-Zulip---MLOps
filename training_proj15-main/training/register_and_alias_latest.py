@@ -57,9 +57,36 @@ def _latest_finished_run(client: MlflowClient, experiment_name: str, run_name: s
 
 
 def _metric_map(run: Run) -> dict[str, float]:
+    """Normalize metrics to {name: float} across MLflow client/server versions.
+
+    Some stacks return ``run.data.metrics`` as a ``dict`` (name -> latest value);
+    others return a list of objects with ``.key`` / ``.value`` (or tuples).
+    """
     out: dict[str, float] = {}
-    for m in run.data.metrics:
-        out[m.key] = float(m.value)
+    raw = run.data.metrics
+    if raw is None:
+        return out
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            try:
+                out[str(k)] = float(v)
+            except (TypeError, ValueError):
+                pass
+        return out
+    for m in raw:
+        key = getattr(m, "key", None)
+        val = getattr(m, "value", None)
+        if key is not None and val is not None:
+            try:
+                out[str(key)] = float(val)
+            except (TypeError, ValueError):
+                pass
+            continue
+        if isinstance(m, (list, tuple)) and len(m) >= 2:
+            try:
+                out[str(m[0])] = float(m[1])
+            except (TypeError, ValueError):
+                pass
     return out
 
 

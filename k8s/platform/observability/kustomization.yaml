@@ -1,13 +1,19 @@
-# Prometheus (metrics) + Grafana (dashboards); PVC-backed TSDB and Grafana lib.
+# Prometheus (metrics + rules) + Grafana (dashboards) + Alertmanager; PVC-backed TSDB and Grafana lib.
 # Apply after namespace monitoring exists and Secret grafana-admin is present (see deploy_platform / GETTING_STARTED).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: monitoring
 resources:
   - rbac.yaml
+  - deployment-kube-state-metrics.yaml
+  - hpa-kube-state-metrics.yaml
+  - daemonset-node-exporter.yaml
   - configmap-prometheus.yaml
+  - configmap-alertmanager.yaml
   - pvc-prometheus.yaml
   - deployment-prometheus.yaml
+  - deployment-alertmanager.yaml
+  - hpa-alertmanager.yaml
   - configmap-grafana-datasources.yaml
   - configmap-grafana-dashboard-provider.yaml
   - pvc-grafana.yaml
@@ -23,3 +29,6 @@ configMapGenerator:
     files:
       - dashboards/ml-serving-tone.json
       - dashboards/ml-retraining-feedback.json
+      - dashboards/infra-health.json
+      - dashboards/data-pipeline-quality.json
+      - dashboards/platform-operations.json

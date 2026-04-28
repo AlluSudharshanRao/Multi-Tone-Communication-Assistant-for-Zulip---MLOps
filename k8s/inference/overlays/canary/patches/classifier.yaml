@@ -10,5 +10,24 @@ spec:
           env:
             - name: DUMMY_MODE
               value: "false"
+            - name: CLASSIFIER_MODEL_URI
+              value: "models:/tone-classifier@canary"
             - name: DEPLOYMENT_TIER
               value: "canary"
+          # Real mode: MLflow + DistilBERT can take many minutes; /ready stays 503 until load completes.
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 120
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 420
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
