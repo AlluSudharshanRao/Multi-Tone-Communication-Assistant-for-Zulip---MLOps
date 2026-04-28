@@ -43,6 +43,17 @@ Grafana provisions the `MLOps` folder automatically. The current dashboards are:
   - deployment replica availability
   - pod restart behavior
   - Kubernetes node readiness
+- `Data Monitoring and Quality`
+  - bridge feedback counters
+  - feature-log activity
+  - data and training job health
+  - data and training pod restarts
+- `Platform Operations`
+  - Traefik / ingress health
+  - block-volume and root-disk free space
+  - backup job success and failure
+  - namespace CPU and memory request totals
+  - running versus pending pods by namespace
 
 If dashboards are changed, re-apply:
 
@@ -93,8 +104,19 @@ HorizontalPodAutoscalers are configured for:
 - `tone-generator-staging`
 - `tone-generator-canary`
 - `tone-generator-prod`
+- `zulip-bridge`
+- `kube-state-metrics`
+- `alertmanager`
 
-The classifier HPAs target `70%` CPU utilization and the generator HPAs target `65%`.
+The classifier HPAs target `70%` CPU utilization, the generator HPAs target `65%`, and the
+bridge / observability HPAs use CPU-plus-memory targets to absorb bursty traffic and cluster-state churn.
+
+Deliberately fixed-size services:
+
+- `mlflow` remains singleton because it uses SQLite on a PVC
+- `minio` remains singleton because this deployment is a single-node PVC-backed object store
+- `prometheus` remains singleton because it uses one PVC-backed TSDB
+- `grafana` remains singleton because it is backed by a single PVC and is not a throughput bottleneck in this class project
 
 Validated live on the current cluster:
 
