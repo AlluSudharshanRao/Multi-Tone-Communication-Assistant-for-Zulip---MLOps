@@ -1,3 +1,17 @@
+# Classifier Training Job — fine-tunes DistilBERT on GYAFC + Stanford Politeness Corpus.
+# Owned by: Data / Training Engineer role.
+# Dockerfile: teammate repo (see k8s/containers-matrix.md)
+# Namespace: ml-training  (provisioned in k8s/base/namespaces.yaml)
+#
+# This is a Kubernetes Job (run-to-completion), not a long-running Deployment.
+# Triggered manually or by CI/CD on new data or drift detection.
+# Logs metrics and model artefacts to MLflow (ml-platform namespace).
+# Saves model weights under MinIO bucket zulip-rewriter (aligned with data stack; prefix e.g. classifier/).
+# Pulls the latest batch manifest plus optional feedback artifacts, materializes
+# a training bundle, then trains from that manifest-backed dataset.
+#
+# Apply: kubectl apply -f k8s/training/classifier-training-job.yaml
+# Monitor: kubectl logs -n ml-training -l job-name=classifier-training -f
 ---
 apiVersion: batch/v1
 kind: Job
@@ -55,9 +69,10 @@ spec:
                 sleep 5
               done
               mc ls "platform/$MINIO_BUCKET" >/dev/null
-              mkdir -p /data/raw /data/batch
+              mkdir -p /data/raw /data/batch/latest /data/feedback
               mc cp --recursive "platform/$MINIO_BUCKET/raw/" /data/raw/ || true
               mc cp --recursive "platform/$MINIO_BUCKET/batch/" /data/batch/ || true
+              mc cp --recursive "platform/$MINIO_BUCKET/feedback/" /data/feedback/ || true
           volumeMounts:
             - name: training-data
               mountPath: /data
@@ -65,13 +80,6 @@ spec:
         - name: classifier-training
           image: ghcr.io/allusudharshanrao/mlops-training-classifier:latest
           imagePullPolicy: IfNotPresent
-          command:
-            - sh
-            - -c
-          args:
-            - |
-              python -c "import boto3" >/dev/null 2>&1 || python -m pip install --no-cache-dir boto3
-              exec python /app/train.py --config /app/configs/candidate_tone_distilbert.yaml
           env:
             - name: MLFLOW_TRACKING_URI
               value: "http://mlflow.ml-platform.svc.cluster.local:5000"
@@ -111,6 +119,9 @@ spec:
               value: "/data"
             - name: OUTPUT_PATH
               value: "/output"
+            - name: DATASET_MANIFEST_PATH
+              value: "/output/training_data/dataset_manifest.json"
+            # Training hyperparameters — override via env or configmap as needed.
             - name: NUM_EPOCHS
               value: "5"
             - name: BATCH_SIZE
@@ -119,6 +130,17 @@ spec:
               value: "2e-5"
             - name: F1_THRESHOLD
               value: "0.85"
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              python -c "import boto3" >/dev/null 2>&1 || python -m pip install --no-cache-dir boto3
+              python /app/prepare_training_data.py \
+                --batch-root /data/batch/latest \
+                --feedback-dir /data/feedback \
+                --output-dir /output/training_data
+              python /app/train.py --config /app/configs/candidate_tone_distilbert.yaml
           volumeMounts:
             - name: training-data
               mountPath: /data

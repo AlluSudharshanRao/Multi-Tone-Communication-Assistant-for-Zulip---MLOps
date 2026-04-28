@@ -24,6 +24,10 @@ spec:
       labels:
         app: zulip-bridge
         role: integration
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8090"
+        prometheus.io/path: "/metrics"
     spec:
       securityContext:
         runAsNonRoot: true

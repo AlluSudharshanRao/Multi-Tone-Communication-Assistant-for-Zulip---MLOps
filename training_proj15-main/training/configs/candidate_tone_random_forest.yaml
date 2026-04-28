@@ -5,6 +5,8 @@ description: "RandomForest + TF-IDF; explores higher capacity vs training cost."
 
 data:
   dataset: tone_csv
+  dataset_manifest_path: ${DATASET_MANIFEST_PATH}
+  dataset_manifest_role: classifier_tone_csv
   csv_path: /data/batch/latest/classifier_dataset.csv
   label_classes:
     - formal

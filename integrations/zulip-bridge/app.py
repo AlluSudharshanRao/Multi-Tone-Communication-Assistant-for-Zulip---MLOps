@@ -50,6 +50,11 @@ FEEDBACK_COUNTER = Counter(
     "User feedback signals received",
     ["user_action", "tone_shown"],
 )
+FEEDBACK_EVENTS = Counter(
+    "zulip_feedback_events_total",
+    "User feedback events on generated suggestions",
+    ["outcome", "tone", "category", "deadline_bucket"],
+)
 FEATURE_LOG_COUNTER = Counter(
     "bridge_feature_log_total",
     "Production request feature logs written for drift detection",
@@ -173,6 +178,11 @@ def _redact(s: str, max_len: int = 80) -> str:
     return (s[:max_len] + "…") if len(s) > max_len else s
 
 
+def _metric_label(value: str, default: str = "unknown") -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", "_", (value or "").strip().lower()).strip("_")
+    return cleaned[:48] if cleaned else default
+
+
 def _extract_user_text(payload: dict[str, Any]) -> tuple[str, str]:
     """Returns (message_id, plain_text_for_model)."""
     # Direct API (curl / tests): same shape as contracts/classifier_input.json
@@ -224,11 +234,30 @@ class FeedbackRequest(BaseModel):
     )
     correct_tone: str | None = Field(None, description="If thumbs_down: which tone the user preferred")
     preferred_text: str | None = Field(None, description="If edited: the user's rewritten text (max 2000 chars)")
+    helpful: bool | None = Field(default=None, description="Compatibility flag used by older feedback clients")
+    decision: str | None = Field(default=None, description="Explicit accepted/rejected override for dashboards")
+    category: str = Field(default="unknown", description="Optional document category for feedback analytics")
+    deadline_bucket: str = Field(default="unknown", description="Optional deadline bucket for feedback analytics")
 
 class FeedbackResponse(BaseModel):
     status: str
     feedback_id: str
     message_id: str
+
+
+def _feedback_outcome(req: FeedbackRequest) -> str:
+    decision = (req.decision or "").strip().lower()
+    if decision in {"accepted", "rejected"}:
+        return decision
+    if req.helpful is True:
+        return "accepted"
+    if req.helpful is False:
+        return "rejected"
+    if req.user_action in {"thumbs_up", "selected"}:
+        return "accepted"
+    if req.user_action == "thumbs_down":
+        return "rejected"
+    return "other"
 
 
 # ---------------------------------------------------------------------------
@@ -264,6 +293,12 @@ def feedback(req: FeedbackRequest) -> FeedbackResponse:
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     FEEDBACK_COUNTER.labels(user_action=req.user_action, tone_shown=req.tone_shown).inc()
+    FEEDBACK_EVENTS.labels(
+        outcome=_feedback_outcome(req),
+        tone=_metric_label(req.correct_tone or req.tone_shown),
+        category=_metric_label(req.category),
+        deadline_bucket=_metric_label(req.deadline_bucket),
+    ).inc()
     _write_feedback_to_minio(record)
     logger.info(
         "feedback id=%s message_id=%s action=%s tone=%s correct=%s",
@@ -346,8 +381,6 @@ async def zulip_webhook(request: Request) -> JSONResponse:
         )
 
     return JSONResponse({"content": _zulip_reply_markdown(gen_json)})
-
-
 @app.post("/generate")
 async def proxy_generate(request: Request) -> Response:
     """Passthrough POST body to generator /generate (smoke tests)."""

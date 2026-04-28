@@ -2,6 +2,11 @@
 
 Namespace `monitoring` hosts the shared observability stack:
 
+- **Grafana** Ingress: **`https://grafana.<floating-ip>.nip.io/`**. **Prometheus** also has an Ingress (`ingress-prometheus.yaml`) at **`https://prometheus.<floating-ip>.nip.io/`**; include that name in your TLS cert SAN when you generate `tls.crt`.
+- **Datasource** is provisioned automatically: Grafana → Prometheus in-cluster (Prometheus datasource UID **`prometheus`**).
+- **Dashboards:** folder **MLOps** includes **ML serving — tone inference**, **ML retraining and feedback overview**, **Infrastructure Health**, **Data Monitoring and Quality**, and **Platform Operations**. Re-apply `kubectl apply -k k8s/platform/observability/` after pulling manifest changes, then restart Grafana if it does not pick up new files immediately.
+- **Pod scraping**: any pod with annotations `prometheus.io/scrape: "true"`, `prometheus.io/port`, optional `prometheus.io/path` (see `ml-serving` inference Deployments). If a target stays **down**, the app may not expose Prometheus metrics on that path; adjust or remove annotations.
+- **Grafana admin password**: Secret **`grafana-admin`** — created by `deploy_platform.yml` if missing (`openssl rand -base64 32`). Read it:
 - `prometheus` stores scraped metrics on the `prometheus-data` PVC
 - `grafana` serves dashboards from the `grafana-data` PVC
 - `alertmanager` receives alerts from Prometheus
@@ -38,6 +43,10 @@ Grafana provisions the `MLOps` folder automatically. The current dashboards are:
   - p95 latency
   - error rate
   - feedback counters for the tone assistant services
+- `ML retraining and feedback overview`
+  - classifier prediction volume by tone
+  - classifier confidence trends
+  - feedback events by outcome, category, deadline bucket, and requested tone
 - `Infrastructure Health`
   - node CPU and memory pressure
   - deployment replica availability

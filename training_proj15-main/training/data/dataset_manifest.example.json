@@ -1,0 +1,15 @@
+{
+  "batch_version": "v2_batch_2026-04-27",
+  "created_at": "2026-04-27T18:30:00Z",
+  "artifacts": {
+    "classifier_tone_csv": {
+      "train_path": "data/tone_seed.csv",
+      "label_classes": ["formal", "friendly", "neutral"]
+    },
+    "generator_rewrites": {
+      "train_path": "data/generator_train.jsonl",
+      "eval_path": "data/generator_train.jsonl",
+      "tones": ["formal", "friendly", "neutral"]
+    }
+  }
+}

@@ -137,26 +137,46 @@ def _evaluate_generator_gates(
     run: Run,
     *,
     max_loss: float | None,
+    min_reference_token_f1: float | None,
+    min_reference_rouge_l_f1: float | None,
+    max_copy_rate: float | None,
 ) -> tuple[bool, dict[str, float | str]]:
-    """Prefer validation loss (last_eval_loss) when present; else training loss."""
+    """Prefer rewrite usefulness metrics; fall back to loss if they are not configured."""
     m = _metric_map(run)
     checks: dict[str, float | str] = {}
-    if max_loss is None:
-        return True, checks
-    eval_l = _get_metric(m, "last_eval_loss")
-    train_l = _get_metric(m, "last_train_loss")
-    if eval_l is not None:
-        checks["loss_used"] = "last_eval_loss"
-        checks["loss_value"] = eval_l
-        passed = eval_l <= max_loss
-    elif train_l is not None:
-        checks["loss_used"] = "last_train_loss"
-        checks["loss_value"] = train_l
-        checks["note"] = "no last_eval_loss; val_fraction may be 0 or metric name differs"
-        passed = train_l <= max_loss
-    else:
-        checks["loss_value"] = "missing"
-        passed = False
+    passed = True
+    if min_reference_token_f1 is not None:
+        val = _get_metric(m, "generator_eval.avg_reference_token_f1")
+        checks["avg_reference_token_f1"] = val if val is not None else "missing"
+        if val is None or val < min_reference_token_f1:
+            passed = False
+    if min_reference_rouge_l_f1 is not None:
+        val = _get_metric(m, "generator_eval.avg_reference_rouge_l_f1")
+        checks["avg_reference_rouge_l_f1"] = val if val is not None else "missing"
+        if val is None or val < min_reference_rouge_l_f1:
+            passed = False
+    if max_copy_rate is not None:
+        val = _get_metric(m, "generator_eval.copy_rate")
+        checks["copy_rate"] = val if val is not None else "missing"
+        if val is None or val > max_copy_rate:
+            passed = False
+    if max_loss is not None:
+        eval_l = _get_metric(m, "last_eval_loss")
+        train_l = _get_metric(m, "last_train_loss")
+        if eval_l is not None:
+            checks["loss_used"] = "last_eval_loss"
+            checks["loss_value"] = eval_l
+            if eval_l > max_loss:
+                passed = False
+        elif train_l is not None:
+            checks["loss_used"] = "last_train_loss"
+            checks["loss_value"] = train_l
+            checks["note"] = "no last_eval_loss; val_fraction may be 0 or metric name differs"
+            if train_l > max_loss:
+                passed = False
+        else:
+            checks["loss_value"] = "missing"
+            passed = False
     return passed, checks
 
 
@@ -265,6 +285,24 @@ def main() -> None:
         help="Quality gate: max allowed last_eval_loss or last_train_loss (lower is better).",
     )
     p.add_argument(
+        "--min-generator-reference-token-f1",
+        type=float,
+        default=None,
+        help="Quality gate: minimum held-out reference token-F1 for generator rewrites.",
+    )
+    p.add_argument(
+        "--min-generator-reference-rouge-l-f1",
+        type=float,
+        default=None,
+        help="Quality gate: minimum held-out ROUGE-L F1 for generator rewrites.",
+    )
+    p.add_argument(
+        "--max-generator-copy-rate",
+        type=float,
+        default=None,
+        help="Quality gate: maximum fraction of rewrites that simply copy the source text.",
+    )
+    p.add_argument(
         "--skip-quality-gates",
         action="store_true",
         help="Register models even when --min-* / --max-* thresholds are not met (not recommended).",
@@ -301,6 +339,9 @@ def main() -> None:
             args.min_classifier_accuracy,
             args.min_classifier_worst_class_f1,
             args.max_generator_loss,
+            args.min_generator_reference_token_f1,
+            args.min_generator_reference_rouge_l_f1,
+            args.max_generator_copy_rate,
         )
     )
     clf_ok, clf_detail = _evaluate_classifier_gates(
@@ -309,7 +350,13 @@ def main() -> None:
         min_accuracy=args.min_classifier_accuracy,
         min_worst_class_f1=args.min_classifier_worst_class_f1,
     )
-    gen_ok, gen_detail = _evaluate_generator_gates(gen_run, max_loss=args.max_generator_loss)
+    gen_ok, gen_detail = _evaluate_generator_gates(
+        gen_run,
+        max_loss=args.max_generator_loss,
+        min_reference_token_f1=args.min_generator_reference_token_f1,
+        min_reference_rouge_l_f1=args.min_generator_reference_rouge_l_f1,
+        max_copy_rate=args.max_generator_copy_rate,
+    )
     gates_passed = clf_ok and gen_ok
 
     if gate_requested:
