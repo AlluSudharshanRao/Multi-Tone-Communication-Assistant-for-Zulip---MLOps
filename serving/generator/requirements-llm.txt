@@ -1,6 +1,8 @@
 # Real inference (DUMMY_MODE=false): seq2seq (Flan-T5) or causal + LoRA (training_proj15 train_llm.py)
-torch==2.2.2
-transformers==4.40.0
-accelerate==0.29.3
-peft==0.11.1
+# Keep this roughly aligned with training/requirements-llm.txt so served LoRA artifacts
+# remain compatible with the PEFT config fields emitted during retraining.
+torch>=2.2.0
+transformers>=4.44.0,<5
+accelerate>=0.33.0
+peft>=0.12.0
 better-profanity==0.7.0

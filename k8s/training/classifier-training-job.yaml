@@ -146,6 +146,9 @@ spec:
               mountPath: /data
             - name: output
               mountPath: /output
+            - name: training-runtime-code
+              mountPath: /app/prepare_training_data.py
+              subPath: prepare_training_data.py
           resources:
             requests:
               cpu: "1"
@@ -158,3 +161,7 @@ spec:
           emptyDir: {}
         - name: output
           emptyDir: {}
+        - name: training-runtime-code
+          configMap:
+            name: training-runtime-code
+            defaultMode: 0555

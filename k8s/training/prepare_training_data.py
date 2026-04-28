@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -216,52 +215,6 @@ def _split_examples(rows: list[dict[str, str]], eval_fraction: float) -> tuple[l
     return rows[:-eval_count], rows[-eval_count:]
 
 
-def _stable_key(*parts: str) -> str:
-    return hashlib.sha256("||".join(parts).encode("utf-8")).hexdigest()
-
-
-def _cap_classifier_rows(
-    rows: list[dict[str, str]],
-    *,
-    train_limit: int | None,
-    val_limit: int | None,
-    test_limit: int | None,
-) -> list[dict[str, str]]:
-    limits = {"train": train_limit, "val": val_limit, "test": test_limit}
-    capped: list[dict[str, str]] = []
-    for split in ("train", "val", "test"):
-        split_rows = [row for row in rows if row.get("split", "train") == split]
-        limit = limits[split]
-        if limit is None or len(split_rows) <= limit:
-            capped.extend(split_rows)
-            continue
-        quota = max(1, limit // len(TONE_LABELS))
-        tone_buckets = {
-            tone: sorted(
-                [row for row in split_rows if row["tone"] == tone],
-                key=lambda row: _stable_key(split, row["tone"], row["text"]),
-            )
-            for tone in TONE_LABELS
-        }
-        selected: list[dict[str, str]] = []
-        remainders: list[dict[str, str]] = []
-        for tone in TONE_LABELS:
-            bucket = tone_buckets[tone]
-            selected.extend(bucket[:quota])
-            remainders.extend(bucket[quota:])
-        if len(selected) < limit:
-            remainders.sort(key=lambda row: _stable_key(split, row["tone"], row["text"]))
-            selected.extend(remainders[: limit - len(selected)])
-        capped.extend(selected[:limit])
-    return capped
-
-
-def _cap_generator_examples(rows: list[dict[str, str]], limit: int | None) -> list[dict[str, str]]:
-    if limit is None or len(rows) <= limit:
-        return rows
-    return sorted(rows, key=lambda row: _stable_key(row["original_text"]))[:limit]
-
-
 def main() -> None:
     p = argparse.ArgumentParser(description="Prepare manifest-backed training datasets from latest batch + feedback.")
     p.add_argument("--batch-root", type=Path, required=True)
@@ -270,11 +223,6 @@ def main() -> None:
     p.add_argument("--generator-seed-jsonl", type=Path, default=Path("data/generator_train.jsonl"))
     p.add_argument("--feedback-dir", type=Path, default=None)
     p.add_argument("--eval-fraction", type=float, default=0.2)
-    p.add_argument("--max-classifier-train-rows", type=int, default=8000)
-    p.add_argument("--max-classifier-val-rows", type=int, default=2000)
-    p.add_argument("--max-classifier-test-rows", type=int, default=2000)
-    p.add_argument("--max-generator-train-examples", type=int, default=2500)
-    p.add_argument("--max-generator-eval-examples", type=int, default=500)
     args = p.parse_args()
 
     base = Path(__file__).resolve().parent
@@ -294,13 +242,6 @@ def main() -> None:
         classifier_seed = _load_classifier_rows((base / args.classifier_seed_csv).resolve(), "seed")
         classifier_seed_origin = str((base / args.classifier_seed_csv).resolve())
     classifier_rows, classifier_stats = _build_classifier_rows(classifier_seed, feedback_rows)
-    classifier_rows = _cap_classifier_rows(
-        classifier_rows,
-        train_limit=args.max_classifier_train_rows,
-        val_limit=args.max_classifier_val_rows,
-        test_limit=args.max_classifier_test_rows,
-    )
-    classifier_stats["capped_rows"] = len(classifier_rows)
     classifier_path = output_dir / "classifier_tone.csv"
     _write_classifier_csv(classifier_path, classifier_rows)
 
@@ -314,13 +255,11 @@ def main() -> None:
         generator_seed_origin = str((base / args.generator_seed_jsonl).resolve())
     generator_examples, generator_stats = _build_generator_examples(generator_seed, feedback_rows)
     if batch_generator_eval_path.exists():
-        generator_train = _cap_generator_examples(generator_examples, args.max_generator_train_examples)
-        generator_eval = _cap_generator_examples(_load_generator_examples(batch_generator_eval_path), args.max_generator_eval_examples)
+        generator_train = generator_examples
+        generator_eval = _load_generator_examples(batch_generator_eval_path)
         generator_eval_origin = str(batch_generator_eval_path)
     else:
         generator_train, generator_eval = _split_examples(generator_examples, args.eval_fraction)
-        generator_train = _cap_generator_examples(generator_train, args.max_generator_train_examples)
-        generator_eval = _cap_generator_examples(generator_eval, args.max_generator_eval_examples)
         generator_eval_origin = "split_from_train"
     generator_train_path = output_dir / "generator_train.jsonl"
     generator_eval_path = output_dir / "generator_eval.jsonl"

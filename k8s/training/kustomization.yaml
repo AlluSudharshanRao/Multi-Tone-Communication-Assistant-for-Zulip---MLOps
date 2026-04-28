@@ -7,3 +7,9 @@ namespace: ml-training
 resources:
   - classifier-training-job.yaml
   - generator-training-job.yaml
+configMapGenerator:
+  - name: training-runtime-code
+    options:
+      disableNameSuffixHash: true
+    files:
+      - prepare_training_data.py

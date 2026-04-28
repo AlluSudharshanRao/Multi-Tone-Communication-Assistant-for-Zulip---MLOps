@@ -99,6 +99,13 @@ High-level request path:
 5. User actions and edits are persisted as feedback in MinIO.
 6. Batch and retraining automation use that feedback to build new datasets, train new models, register them in MLflow, and update serving aliases.
 
+Current integrated behavior:
+
+- retraining now prefers `batch/latest/` classifier and generator exports before falling back to local seed files
+- the retrain trigger writes drift evaluations and trigger records into MinIO
+- classifier and generator registry aliases are promoted through `canary` and `prod`
+- generator serving includes compatibility handling for newer PEFT LoRA metadata so newly registered adapters can still load on the cluster
+
 ## Documentation map
 
 - [GETTING_STARTED.md](C:\Users\sudha\OneDrive\Desktop\MLOps\Multi-Tone-Communication-Assistant-for-Zulip---MLOps\GETTING_STARTED.md): full bring-up order

@@ -193,6 +193,14 @@ Training jobs:
 - train a new classifier and generator
 - log metrics and artifacts to MLflow
 
+The training prep step now prefers:
+
+- `batch/latest/classifier_dataset.csv`
+- `batch/latest/generator_train.jsonl`
+- `batch/latest/generator_val.jsonl`
+
+It merges feedback on top of those batch artifacts before training, and only falls back to repo seed files if the latest batch exports are missing.
+
 The registration job:
 
 - enforces quality gates

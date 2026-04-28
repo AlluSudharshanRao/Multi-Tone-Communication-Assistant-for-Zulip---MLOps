@@ -11,9 +11,10 @@ Training jobs run in namespace `ml-training`.
 ## Runtime flow
 
 1. Training jobs read data from MinIO.
-2. Runs are logged to MLflow.
-3. `register-and-alias-latest` assigns aliases such as `canary` and `prod`.
-4. Serving deployments resolve models from those aliases.
+2. `prepare_training_data.py` prefers `batch/latest/` exports from MinIO and only falls back to repo seed files when those latest batch artifacts are missing.
+3. Runs are logged to MLflow.
+4. `register-and-alias-latest` assigns aliases such as `canary` and `prod`.
+5. Serving deployments resolve models from those aliases.
 
 ## Apply
 

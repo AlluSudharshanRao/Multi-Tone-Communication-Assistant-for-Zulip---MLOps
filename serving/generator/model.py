@@ -23,11 +23,14 @@ Real mode (DUMMY_MODE=false) — two backends (match training_proj15):
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import os
 import random
 import re
+import shutil
+import tempfile
 import time
 from pathlib import Path
 from typing import Iterable
@@ -146,6 +149,28 @@ def _resolve_base_model_from_adapter(adapter_dir: str, fallback: str) -> str:
     cfg = _read_json(Path(adapter_dir) / "adapter_config.json")
     base_model = str(cfg.get("base_model_name_or_path") or "").strip()
     return base_model or fallback
+
+
+def _sanitize_peft_adapter_dir(
+    adapter_dir: str,
+    unsupported_keys: Iterable[str],
+    supported_keys: set[str] | None = None,
+) -> str:
+    cfg_path = Path(adapter_dir) / "adapter_config.json"
+    cfg = _read_json(cfg_path)
+    removed = {key for key, value in cfg.items() if value is None} | {key for key in unsupported_keys if key in cfg}
+    if supported_keys is not None:
+        removed |= {key for key in cfg if key not in supported_keys}
+    removed = sorted(removed)
+    if not removed:
+        return adapter_dir
+    sanitized_dir = Path(tempfile.mkdtemp(prefix="peft_adapter_"))
+    shutil.copytree(adapter_dir, sanitized_dir, dirs_exist_ok=True)
+    for key in removed:
+        cfg.pop(key, None)
+    (sanitized_dir / "adapter_config.json").write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    logger.info("Sanitized PEFT adapter config at %s by removing %s", sanitized_dir, ", ".join(removed))
+    return str(sanitized_dir)
 
 
 def _token_count(text: str) -> int:
@@ -661,7 +686,7 @@ class _RealCausalGenerator:
 
     def __init__(self):
         import torch
-        from peft import PeftModel
+        from peft import LoraConfig, PeftModel
         from transformers import AutoModelForCausalLM, AutoTokenizer
         from better_profanity import profanity
 
@@ -704,7 +729,38 @@ class _RealCausalGenerator:
             low_cpu_mem_usage=True,
         )
         if using_adapter:
-            self._model = PeftModel.from_pretrained(base, resolved_artifact)
+            try:
+                self._model = PeftModel.from_pretrained(base, resolved_artifact)
+            except TypeError as exc:
+                if "alora_invocation_tokens" in str(exc):
+                    supported_keys = set(inspect.signature(LoraConfig.__init__).parameters) - {"self"}
+                    sanitized_artifact = _sanitize_peft_adapter_dir(
+                        resolved_artifact,
+                        ("alora_invocation_tokens",),
+                        supported_keys,
+                    )
+                    try:
+                        self._model = PeftModel.from_pretrained(base, sanitized_artifact)
+                        logger.info(
+                            "Loaded PEFT adapter from sanitized artifact dir %s after compatibility cleanup",
+                            sanitized_artifact,
+                        )
+                    except Exception as retry_exc:
+                        logger.warning(
+                            "PEFT adapter at %s is still incompatible after sanitizing (%s); "
+                            "falling back to the base causal model so the pod can become ready.",
+                            resolved_artifact,
+                            retry_exc,
+                        )
+                        self._model = base
+                else:
+                    logger.warning(
+                        "PEFT adapter at %s is incompatible with the serving image (%s); "
+                        "falling back to the base causal model so the pod can become ready.",
+                        resolved_artifact,
+                        exc,
+                    )
+                    self._model = base
         else:
             self._model = base
         self._model.to(self._device)

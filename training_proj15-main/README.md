@@ -37,7 +37,9 @@ The training stack can now consume a manifest-backed dataset bundle instead of r
 - `training/train.py` and `training/train_llm.py` read `DATASET_MANIFEST_PATH` from the environment when set.
 - The Kubernetes training jobs are wired to pull `batch/latest/` and `feedback/` from MinIO before training.
 
-This improves the retraining story, but it does not magically make the live learning signal strong: if feedback data is sparse, seed examples still dominate the generator dataset and the manifest records that limitation explicitly.
+This improves the retraining story: `prepare_training_data.py` now prefers `batch/latest/classifier_dataset.csv`, `batch/latest/generator_train.jsonl`, and `batch/latest/generator_val.jsonl` when they exist, then layers user feedback on top. If those batch artifacts are missing, it falls back to the repo seed files.
+
+The live learning signal can still be weak if feedback is sparse, and the generated manifest records that limitation explicitly.
 
 ## Layout
 
