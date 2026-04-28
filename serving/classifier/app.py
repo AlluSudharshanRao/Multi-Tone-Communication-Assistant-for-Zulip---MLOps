@@ -30,10 +30,20 @@ BACKEND = os.environ.get("SERVING_BACKEND", "pytorch").lower()
 # Prometheus metrics
 # ---------------------------------------------------------------------------
 REQUEST_COUNT = Counter("classifier_requests_total", "Total classifier requests", ["status"])
+PREDICTION_COUNT = Counter(
+    "classifier_predictions_total",
+    "Classifier predictions by predicted tone",
+    ["tone"],
+)
 LATENCY_HIST = Histogram(
     "classifier_latency_seconds",
     "Classifier inference latency",
     buckets=[0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.5],
+)
+CONFIDENCE_HIST = Histogram(
+    "classifier_confidence",
+    "Classifier confidence score distribution",
+    buckets=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
 )
 
 # ---------------------------------------------------------------------------
@@ -112,7 +122,9 @@ def predict(request: ClassifierRequest):
         result = classifier.predict(text)
         wall_ms = (time.perf_counter() - t_start) * 1000
         REQUEST_COUNT.labels(status="ok").inc()
+        PREDICTION_COUNT.labels(tone=result["predicted_tone"]).inc()
         LATENCY_HIST.observe(wall_ms / 1000)
+        CONFIDENCE_HIST.observe(float(result["confidence"]))
         log_classifier_audit(
             message_id=request.message_id,
             text=text,

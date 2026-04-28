@@ -22,3 +22,4 @@ configMapGenerator:
       disableNameSuffixHash: true
     files:
       - dashboards/ml-serving-tone.json
+      - dashboards/ml-retraining-feedback.json

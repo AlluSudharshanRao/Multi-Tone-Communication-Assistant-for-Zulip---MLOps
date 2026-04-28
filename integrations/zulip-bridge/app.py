@@ -19,6 +19,8 @@ from typing import Any
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
+from pydantic import BaseModel, Field
 from starlette.responses import Response
 
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +34,12 @@ RATE_PER_MINUTE = int(os.environ.get("RATE_PER_MINUTE", "60"))
 REDACT_LOGS = os.environ.get("REDACT_LOGS", "true").lower() in ("1", "true", "yes")
 
 app = FastAPI(title="Zulip tone bridge", version="1.0.0")
+
+FEEDBACK_EVENTS = Counter(
+    "zulip_feedback_events_total",
+    "User feedback events on generated suggestions",
+    ["outcome", "tone", "category", "deadline_bucket"],
+)
 
 # --- naive sliding-window rate limit per IP ---
 _window: deque[tuple[float, str]] = deque()
@@ -54,6 +62,11 @@ def _redact(s: str, max_len: int = 80) -> str:
         return ""
     s = s.replace("\n", " ")
     return (s[:max_len] + "…") if len(s) > max_len else s
+
+
+def _metric_label(value: str, default: str = "unknown") -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", "_", (value or "").strip().lower()).strip("_")
+    return cleaned[:48] if cleaned else default
 
 
 def _extract_user_text(payload: dict[str, Any]) -> tuple[str, str]:
@@ -95,9 +108,35 @@ def _zulip_reply_markdown(gen_json: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+class FeedbackEvent(BaseModel):
+    message_id: str = Field(..., example="msg_0042")
+    helpful: bool | None = Field(default=None, example=True)
+    decision: str | None = Field(default=None, example="accepted")
+    tone_requested: str = Field(default="unknown", example="formal")
+    category: str = Field(default="unknown", example="deadline")
+    deadline_bucket: str = Field(default="unknown", example="0_3_days")
+    reason: str | None = Field(default=None, example="good_suggestion")
+
+
+def _feedback_outcome(event: FeedbackEvent) -> str:
+    decision = (event.decision or "").strip().lower()
+    if decision in {"accepted", "rejected"}:
+        return decision
+    if event.helpful is True:
+        return "accepted"
+    if event.helpful is False:
+        return "rejected"
+    return "other"
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.post("/zulip/webhook")
@@ -164,6 +203,35 @@ async def zulip_webhook(request: Request) -> JSONResponse:
         )
 
     return JSONResponse({"content": _zulip_reply_markdown(gen_json)})
+
+
+@app.post("/feedback")
+async def feedback(event: FeedbackEvent) -> JSONResponse:
+    outcome = _feedback_outcome(event)
+    tone = _metric_label(event.tone_requested)
+    category = _metric_label(event.category)
+    deadline_bucket = _metric_label(event.deadline_bucket)
+    FEEDBACK_EVENTS.labels(
+        outcome=outcome,
+        tone=tone,
+        category=category,
+        deadline_bucket=deadline_bucket,
+    ).inc()
+    logger.info(
+        "feedback event id=%s outcome=%s tone=%s category=%s deadline_bucket=%s",
+        event.message_id,
+        outcome,
+        tone,
+        category,
+        deadline_bucket,
+    )
+    return JSONResponse(
+        {
+            "status": "ok",
+            "message_id": event.message_id,
+            "outcome": outcome,
+        }
+    )
 
 
 @app.post("/generate")
