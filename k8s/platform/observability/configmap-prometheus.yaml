@@ -221,6 +221,116 @@ data:
               summary: "Node memory usage is high"
               description: "A node has sustained memory usage above 90% for 5 minutes."
 
+          - alert: PlatformFilesystemUsageHigh
+            expr: |
+              100 * (
+                1 - (
+                  node_filesystem_avail_bytes{fstype!~"tmpfs|fuse.lxcfs",mountpoint=~"/|/mnt/block"}
+                  /
+                  node_filesystem_size_bytes{fstype!~"tmpfs|fuse.lxcfs",mountpoint=~"/|/mnt/block"}
+                )
+              ) > 85
+            for: 10m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "Node filesystem usage is high"
+              description: "A monitored root or block volume filesystem has been above 85% usage for 10 minutes."
+
+          - alert: PlatformFilesystemInodesHigh
+            expr: |
+              100 * (
+                1 - (
+                  node_filesystem_files_free{fstype!~"tmpfs|fuse.lxcfs",mountpoint=~"/|/mnt/block"}
+                  /
+                  node_filesystem_files{fstype!~"tmpfs|fuse.lxcfs",mountpoint=~"/|/mnt/block"}
+                )
+              ) > 90
+            for: 10m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "Node inode usage is high"
+              description: "A monitored root or block volume filesystem has been above 90% inode usage for 10 minutes."
+
+          - alert: PlatformPodsCrashLooping
+            expr: |
+              sum(
+                kube_pod_container_status_waiting_reason{
+                  namespace=~"ml-platform|monitoring|zulip|ml-serving|ml-data|ml-training|kube-system",
+                  reason="CrashLoopBackOff"
+                }
+              ) > 0
+            for: 5m
+            labels:
+              severity: critical
+              component: platform
+            annotations:
+              summary: "CrashLoopBackOff detected"
+              description: "At least one tracked container has been stuck in CrashLoopBackOff for 5 minutes."
+
+          - alert: PlatformPodsImagePullFailing
+            expr: |
+              sum(
+                kube_pod_container_status_waiting_reason{
+                  namespace=~"ml-platform|monitoring|zulip|ml-serving|ml-data|ml-training|kube-system",
+                  reason=~"ImagePullBackOff|ErrImagePull"
+                }
+              ) > 0
+            for: 5m
+            labels:
+              severity: critical
+              component: platform
+            annotations:
+              summary: "Image pull failures detected"
+              description: "At least one tracked container cannot pull its image."
+
+          - alert: PlatformPodsOOMKilled
+            expr: |
+              sum(
+                increase(
+                  kube_pod_container_status_last_terminated_reason{
+                    namespace=~"ml-platform|monitoring|zulip|ml-serving|ml-data|ml-training|kube-system",
+                    reason="OOMKilled"
+                  }[15m]
+                )
+              ) > 0
+            for: 5m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "OOMKilled containers detected"
+              description: "At least one tracked container was OOMKilled in the last 15 minutes."
+
+          - alert: PlatformNonRunningPodsDetected
+            expr: |
+              sum(
+                kube_pod_status_phase{
+                  namespace=~"ml-platform|monitoring|zulip|ml-serving|ml-data|ml-training|kube-system",
+                  phase=~"Pending|Failed|Unknown"
+                }
+              ) > 0
+            for: 10m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "Tracked namespaces have non-running pods"
+              description: "Pending, failed, or unknown pods have been present for more than 10 minutes."
+
+          - alert: PlatformPrometheusTargetsDown
+            expr: sum(up{job=~"prometheus|kubernetes-pods"} == 0) > 0
+            for: 10m
+            labels:
+              severity: warning
+              component: platform
+            annotations:
+              summary: "Prometheus has scrape targets down"
+              description: "At least one Prometheus scrape target has been down for 10 minutes."
+
           - alert: PrometheusConfigLastReloadFailed
             expr: prometheus_config_last_reload_successful != 1
             for: 5m
